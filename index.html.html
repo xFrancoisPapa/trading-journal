@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Trading Journal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+html,body{margin:0;padding:0;background:#171310;}
+.tj-app {
+  --bg:#171310; --surface:#1F1A15; --surface-2:#2A241D; --border:#3A322A;
+  --text:#F2E9DC; --text-dim:#A89A85; --text-faint:#6E6255;
+  --gold:#C9A227; --profit:#4FA88A; --profit-bg:rgba(79,168,138,0.14);
+  --loss:#C1584A; --loss-bg:rgba(193,88,74,0.14);
+  --radius:10px;
+  background:var(--bg); color:var(--text); font-family:'Inter',sans-serif;
+  min-height:100vh; padding:20px; box-sizing:border-box;
+}
+.tj-app *{box-sizing:border-box;}
+.tj-app .num{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+.tj-app .profit{color:var(--profit);} .tj-app .loss{color:var(--loss);}
+.tj-muted{color:var(--text-dim);font-size:13px;}
+.tj-loading{display:flex;align-items:center;justify-content:center;gap:10px;height:60vh;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:13px;}
+.tj-spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:tj-spin .8s linear infinite;}
+@keyframes tj-spin{to{transform:rotate(360deg);}}
+.tj-header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:14px;margin-bottom:18px;}
+.tj-brand{display:flex;align-items:center;gap:12px;}
+.tj-brand-mark{font-family:'Fraunces',serif;font-size:30px;color:var(--gold);line-height:1;}
+.tj-brand h1{font-family:'Fraunces',serif;font-size:22px;font-weight:600;margin:0;letter-spacing:-.01em;}
+.tj-brand p{margin:2px 0 0;font-size:12px;color:var(--text-faint);font-style:italic;}
+.tj-header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.tj-saved{font-size:11px;color:var(--profit);font-family:'IBM Plex Mono',monospace;opacity:0;transition:opacity .3s;}
+.tj-saved.show{opacity:1;}
+.tj-btn{font-family:'Inter',sans-serif;font-size:13px;font-weight:500;padding:8px 14px;border-radius:7px;border:1px solid var(--border);cursor:pointer;transition:all .15s;background:var(--surface);color:var(--text);display:inline-flex;align-items:center;gap:6px;}
+.tj-btn:hover{border-color:var(--gold);}
+.tj-btn:disabled{opacity:.4;cursor:not-allowed;}
+.tj-btn-primary{background:var(--gold);border-color:var(--gold);color:#1A1611;font-weight:600;}
+.tj-btn-primary:hover{filter:brightness(1.08);}
+.tj-btn-ghost{background:transparent;}
+.tj-btn-danger{background:transparent;border-color:var(--loss);color:var(--loss);}
+.tj-btn-danger:hover{background:var(--loss-bg);}
+.tj-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;}
+.tj-tab{background:none;border:none;color:var(--text-dim);font-size:13px;font-weight:500;padding:10px 14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+.tj-tab:hover{color:var(--text);}
+.tj-tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.tj-empty{text-align:center;padding:70px 20px;color:var(--text-dim);}
+.tj-empty.small{padding:40px 20px;}
+.tj-empty-mark{font-family:'Fraunces',serif;font-size:40px;color:var(--gold);display:block;margin-bottom:6px;}
+.tj-empty h2{font-family:'Fraunces',serif;color:var(--text);margin:0 0 8px;}
+.tj-empty p{font-size:13px;margin:0 auto 18px;max-width:440px;}
+.tj-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px;}
+.tj-stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:4px;}
+.tj-stat.big{grid-column:span 2;}
+.tj-stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);}
+.tj-stat-value{font-size:20px;font-weight:500;}
+.tj-stat.big .tj-stat-value{font-size:28px;}
+.tj-stat-sub{font-size:11px;color:var(--text-dim);}
+.tj-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px;}
+.tj-panel h3{font-family:'Fraunces',serif;font-weight:600;margin:0 0 12px;font-size:16px;}
+.tj-ledger-lines{background-image:repeating-linear-gradient(180deg,transparent,transparent 27px,rgba(201,162,39,.05) 28px);}
+.tj-chart-wrap{overflow-x:auto;}
+.tj-chart-svg{width:100%;display:block;}
+.tj-calendar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
+.tj-cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.tj-cal-title{text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.tj-cal-title h3{font-family:'Fraunces',serif;margin:0;font-size:17px;}
+.tj-cal-week{display:grid;grid-template-columns:repeat(7,1fr) 78px;gap:6px;margin-bottom:6px;}
+.tj-cal-weekhead .tj-cal-wd:last-child{font-weight:600;color:var(--gold);}
+.tj-cal-wd{text-align:center;font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;}
+.tj-cal-cell{aspect-ratio:1;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;padding:4px;color:var(--text);position:relative;}
+.tj-cal-cell:disabled{cursor:default;opacity:.55;}
+.tj-cal-cell.empty{background:transparent;border:none;}
+.tj-cal-cell.profit{background:var(--profit-bg);border-color:rgba(79,168,138,.35);}
+.tj-cal-cell.loss{background:var(--loss-bg);border-color:rgba(193,88,74,.35);}
+.tj-cal-cell.today{box-shadow:0 0 0 1.5px var(--gold) inset;}
+.tj-cal-daynum{font-size:11px;color:var(--text-faint);}
+.tj-cal-pnl{font-size:11px;}
+.tj-cal-count{font-size:9px;color:var(--text-faint);}
+.tj-cal-journal-dot{position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;background:var(--gold);}
+.tj-week-total{display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--border);font-size:12px;background:var(--surface-2);}
+.tj-week-total.profit{background:var(--profit-bg);border-color:rgba(79,168,138,.35);}
+.tj-week-total.loss{background:var(--loss-bg);border-color:rgba(193,88,74,.35);}
+.tj-log-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+.tj-input{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:8px 10px;font-size:13px;font-family:'Inter',sans-serif;}
+.tj-input:focus{outline:none;border-color:var(--gold);}
+.tj-day-filter{display:flex;gap:10px;align-items:center;margin-bottom:12px;font-size:13px;color:var(--text-dim);}
+.tj-link{background:none;border:none;color:var(--gold);cursor:pointer;font-size:12px;text-decoration:underline;padding:0;}
+.tj-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);}
+.tj-table{width:100%;border-collapse:collapse;font-size:13px;min-width:920px;}
+.tj-table th{text-align:left;padding:10px 12px;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;}
+.tj-table th.sorted{color:var(--gold);}
+.tj-table td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.tj-table tr:last-child td{border-bottom:none;}
+.tj-table tr:hover td{background:rgba(255,255,255,.02);}
+.tj-symbol{font-weight:600;font-family:'IBM Plex Mono',monospace;}
+.tj-dir{font-size:11px;padding:2px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;}
+.tj-dir.long{background:rgba(110,155,193,.15);color:#6E9BC1;}
+.tj-dir.short{background:rgba(155,127,199,.15);color:#9B7FC7;}
+.tj-dir.watching{background:var(--surface-2);color:var(--text-dim);}
+.tj-tag-pill{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);display:inline-flex;align-items:center;gap:4px;}
+.tj-notes{max-width:170px;overflow:hidden;text-overflow:ellipsis;color:var(--text-dim);font-size:12px;}
+.tj-row-actions{display:flex;gap:4px;}
+.tj-icon-btn{background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:13px;padding:4px 6px;border-radius:5px;}
+.tj-icon-btn:hover{color:var(--text);background:var(--surface-2);}
+.tj-tags-view{display:flex;flex-direction:column;gap:0;}
+.tj-tag-add{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+.tj-swatches{display:flex;gap:6px;flex-wrap:wrap;max-width:260px;}
+.tj-swatch{width:20px;height:20px;border-radius:50%;border:2px solid transparent;cursor:pointer;}
+.tj-swatch.active{border-color:var(--text);}
+.tj-icon-picker{display:flex;gap:4px;flex-wrap:wrap;max-width:280px;}
+.tj-icon-opt{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;}
+.tj-icon-opt.active{border-color:var(--gold);background:rgba(201,162,39,.15);}
+.tj-tag-table{display:flex;flex-direction:column;gap:2px;margin-top:10px;}
+.tj-tag-row{display:grid;grid-template-columns:24px 1fr auto auto auto auto;gap:12px;align-items:center;padding:9px 6px;border-bottom:1px solid var(--border);font-size:13px;}
+.tj-tag-row:last-child{border-bottom:none;}
+.tj-tag-dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;}
+.tj-tag-name{font-weight:500;}
+.tj-data-actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+.tj-danger-zone{border-top:1px dashed var(--border);padding-top:14px;}
+.tj-confirm-reset{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--text-dim);}
+.tj-inst-table{display:flex;flex-direction:column;}
+.tj-inst-row{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 70px;gap:10px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--border);font-size:13px;}
+.tj-inst-row.tj-inst-head{color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+.tj-inst-input{width:100%;padding:6px 8px;font-size:12px;}
+.tj-inst-actions{display:flex;gap:6px;justify-content:flex-end;}
+.tj-inst-add{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;}
+.tj-checklist-manager{display:flex;flex-direction:column;gap:6px;}
+.tj-checklist-item{display:flex;gap:8px;align-items:center;}
+.tj-checklist-icons{display:flex;gap:3px;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+.tj-check-glyph{width:16px;height:16px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;background:var(--surface-2);color:var(--text-faint);}
+.tj-check-glyph.pass{background:var(--profit-bg);color:var(--profit);}
+.tj-check-glyph.fail{background:var(--loss-bg);color:var(--loss);}
+.tj-checklist-edit{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
+.tj-checklist-row{display:flex;align-items:center;gap:10px;background:var(--surface-2);padding:8px 10px;border-radius:8px;}
+.tj-checklist-row span{flex:1;font-size:13px;}
+.tj-check-toggle{display:flex;gap:6px;}
+.tj-check-btn{width:30px;height:30px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text-faint);cursor:pointer;font-size:14px;}
+.tj-check-btn.pass.active{background:var(--profit-bg);border-color:var(--profit);color:var(--profit);}
+.tj-check-btn.fail.active{background:var(--loss-bg);border-color:var(--loss);color:var(--loss);}
+.tj-attach-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.tj-attach-thumb{position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--surface-2);}
+.tj-attach-thumb img{width:100%;height:100%;object-fit:cover;}
+.tj-attach-doc{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-size:9px;color:var(--text-dim);text-align:center;padding:2px;gap:2px;}
+.tj-attach-remove{position:absolute;top:2px;right:2px;background:rgba(10,8,6,.75);border:none;color:var(--text);border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;line-height:1;}
+.tj-attach-badge{font-size:11px;color:var(--text-dim);}
+.tj-plan-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+.tj-check-cell{display:flex;gap:2px;}
+.tj-rr-pill{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);}
+.tj-status-pill{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px;border-radius:20px;white-space:nowrap;}
+.status-watching{background:rgba(110,155,193,.15);color:#6E9BC1;}
+.status-triggered{background:rgba(201,162,39,.18);color:var(--gold);}
+.status-taken{background:var(--profit-bg);color:var(--profit);}
+.status-skipped{background:var(--surface-2);color:var(--text-faint);}
+.status-invalidated{background:var(--loss-bg);color:var(--loss);}
+.tj-journal-panel{margin-top:20px;}
+.tj-journal-datebar{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.tj-journal-datebar h3{font-family:'Fraunces',serif;margin:0;font-size:16px;flex:1;}
+.tj-stars{display:flex;gap:2px;font-size:14px;color:var(--border);}
+.tj-stars .on{color:var(--gold);}
+.tj-stars.editable span{cursor:pointer;font-size:22px;}
+.tj-mood-row{display:flex;gap:6px;flex-wrap:wrap;}
+.tj-mood-chip{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);}
+.tj-mood-row.editable .tj-mood-chip{cursor:pointer;background:none;}
+.tj-mood-row.editable .tj-mood-chip.active{background:rgba(201,162,39,.18);border-color:var(--gold);color:var(--gold);}
+.tj-journal-recent{display:flex;flex-direction:column;gap:6px;margin-top:16px;}
+.tj-journal-recent-item{display:flex;gap:10px;align-items:center;padding:8px 10px;background:var(--surface-2);border-radius:8px;cursor:pointer;font-size:12.5px;}
+.tj-journal-recent-item:hover{outline:1px solid var(--gold);}
+.tj-overlay{position:fixed;inset:0;background:rgba(10,8,6,.7);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px;}
+.tj-modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:100%;max-width:640px;max-height:88vh;overflow-y:auto;}
+.tj-modal-sm{max-width:440px;}
+.tj-modal h2{font-family:'Fraunces',serif;margin:0 0 16px;font-size:19px;}
+.tj-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.tj-form-grid label,.tj-notes-label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--text-dim);}
+.tj-tag-select{grid-column:span 2;}
+.tj-custom-symbol{display:flex;flex-direction:column;gap:4px;}
+.tj-specs-line{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;}
+.tj-specs-edit{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;background:var(--surface-2);padding:10px;border-radius:8px;}
+.tj-specs-edit label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--text-dim);}
+.tj-pnl-row{display:flex;align-items:center;gap:12px;margin-top:14px;padding:12px;background:var(--surface-2);border-radius:8px;flex-wrap:wrap;}
+.tj-checkbox{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-dim);}
+.tj-pnl-preview{font-size:13px;margin-left:auto;text-align:right;}
+.tj-pnl-input{margin-left:auto;width:130px;}
+.tj-notes-label{margin-top:14px;display:flex;flex-direction:column;gap:6px;}
+.tj-textarea{resize:vertical;font-family:'Inter',sans-serif;}
+.tj-error{color:var(--loss);font-size:12px;margin:12px 0 0;}
+.tj-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;}
+.tj-import-actions{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0;}
+.tj-import-msg{font-size:13px;color:var(--gold);background:var(--surface-2);padding:8px 10px;border-radius:6px;}
+@media (max-width:640px){
+  .tj-app{padding:14px;}
+  .tj-form-grid{grid-template-columns:1fr;}
+  .tj-specs-edit{grid-template-columns:1fr;}
+  .tj-tag-select{grid-column:span 1;}
+  .tj-stat.big{grid-column:span 2;}
+  .tj-cal-week{grid-template-columns:repeat(7,1fr);}
+  .tj-week-total{display:none;}
+  .tj-cal-weekhead .tj-cal-wd:last-child{display:none;}
+  .tj-cal-cell{font-size:10px;}
+  .tj-cal-pnl{display:none;}
+  .tj-tag-row{grid-template-columns:20px 1fr auto;row-gap:4px;}
+  .tj-tag-row .tj-muted:nth-of-type(2){display:none;}
+  .tj-inst-row{grid-template-columns:1fr 1fr;row-gap:6px;}
+}
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#171310;color:#A89A85;font-family:sans-serif;font-size:14px;text-align:center;padding:20px;">
+    <div>
+      <p>Loading Trading Journal…</p>
+      <p style="font-size:12px;color:#6E6255;max-width:360px;">If this doesn't disappear in a few seconds, this page couldn't reach unpkg.com to load React. Check your internet connection, or open the browser console (F12) for the exact error.</p>
+    </div>
+  </div>
+</div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ---------------- constants ---------------- */
+const TAG_COLORS = ["#C9A227","#4FA88A","#6E9BC1","#C1584A","#9B7FC7","#D68A3C","#5FA8A0","#B5566F","#E0A9A0","#7FA650","#4E8AC7","#D6597A","#8C6FD1","#C77B3C","#3FA0A0","#B08BC7","#E0C25A","#5F7FA6","#A85F7F","#6FA88C"];
+const TAG_ICONS = ["","🎯","📈","📉","🔄","⚡","🌊","🧱","🐢","🔥","💎","⭐","🛡️","🪤","🔍","🕯️","📰","🌙","☀️","⚠️"];
+const CATEGORIES = ["Forex","Metals","Indices","Crypto","Other"];
+const SESSIONS = ["Asian","London","New York","London/NY Overlap","Other"];
+const PLAN_STATUSES = ["Watching","Triggered","Taken","Skipped","Invalidated"];
+const MOOD_TAGS = ["Calm","Confident","Disciplined","Patient","Anxious","FOMO","Impulsive","Frustrated","Tired","Distracted","Revenge trading","Hesitant"];
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const WEEKDAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const CSV_HEADERS = ["date","symbol","category","direction","entry","exit","lots","pointSize","pointValue","fees","risk","pnl","tag","session","notes"];
+const DEFAULT_CHECKLIST = ["Aligned with higher-timeframe trend","Clear CHoCH / BOS confirmed","Entry at a key level (OB / FVG / liquidity)","Risk:Reward at least 1:2"];
+
+const DEFAULT_INSTRUMENTS = [
+  { symbol:"EURUSD", category:"Forex", pointSize:0.0001, pointValue:10 },
+  { symbol:"GBPUSD", category:"Forex", pointSize:0.0001, pointValue:10 },
+  { symbol:"AUDUSD", category:"Forex", pointSize:0.0001, pointValue:10 },
+  { symbol:"NZDUSD", category:"Forex", pointSize:0.0001, pointValue:10 },
+  { symbol:"USDCAD", category:"Forex", pointSize:0.0001, pointValue:10 },
+  { symbol:"USDCHF", category:"Forex", pointSize:0.0001, pointValue:10 },
+  { symbol:"USDJPY", category:"Forex", pointSize:0.01, pointValue:9.1 },
+  { symbol:"EURJPY", category:"Forex", pointSize:0.01, pointValue:9.1 },
+  { symbol:"GBPJPY", category:"Forex", pointSize:0.01, pointValue:9.1 },
+  { symbol:"AUDJPY", category:"Forex", pointSize:0.01, pointValue:9.1 },
+  { symbol:"EURGBP", category:"Forex", pointSize:0.0001, pointValue:12.5 },
+  { symbol:"EURAUD", category:"Forex", pointSize:0.0001, pointValue:6.5 },
+  { symbol:"GBPAUD", category:"Forex", pointSize:0.0001, pointValue:6.5 },
+  { symbol:"XAUUSD", category:"Metals", pointSize:0.01, pointValue:1, label:"Gold" },
+  { symbol:"XAGUSD", category:"Metals", pointSize:0.001, pointValue:5, label:"Silver" },
+  { symbol:"US30", category:"Indices", pointSize:1, pointValue:1, label:"Dow Jones" },
+  { symbol:"NAS100", category:"Indices", pointSize:1, pointValue:1, label:"Nasdaq 100" },
+  { symbol:"SPX500", category:"Indices", pointSize:1, pointValue:1, label:"S&P 500" },
+  { symbol:"GER40", category:"Indices", pointSize:1, pointValue:1, label:"DAX 40" },
+  { symbol:"UK100", category:"Indices", pointSize:1, pointValue:1, label:"FTSE 100" },
+  { symbol:"JPN225", category:"Indices", pointSize:1, pointValue:1, label:"Nikkei 225" },
+  { symbol:"BTCUSD", category:"Crypto", pointSize:1, pointValue:1, label:"Bitcoin" },
+  { symbol:"ETHUSD", category:"Crypto", pointSize:1, pointValue:1, label:"Ethereum" },
+];
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+const fmtMoney = (n) => { if (n===null||n===undefined||isNaN(n)) return "—"; const sign = n<0?"-":""; return `${sign}$${Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`; };
+const fmtPct = (n) => (n===null||n===undefined||isNaN(n)) ? "—" : `${n.toFixed(1)}%`;
+const fmtDate = (d) => { if (!d) return ""; const dt = new Date(d+"T00:00:00"); if (isNaN(dt.getTime())) return d; return dt.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); };
+const todayStr = () => new Date().toISOString().slice(0,10);
+function downloadBlob(content, filename, type) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function calcPnl({ entry, exit, lots, direction, fees, pointSize, pointValue }) {
+  const e=parseFloat(entry), x=parseFloat(exit), l=parseFloat(lots), ps=parseFloat(pointSize), pv=parseFloat(pointValue), f=parseFloat(fees)||0;
+  if ([e,x,l,ps,pv].some((v)=>isNaN(v)) || ps===0) return null;
+  const diff = direction==="short" ? e-x : x-e;
+  const points = diff/ps;
+  return { points, pnl: points*pv*l - f };
+}
+function resizeImageFile(file, maxDim=1600) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (Math.max(width,height) > maxDim) {
+        const scale = maxDim/Math.max(width,height);
+        width = Math.round(width*scale); height = Math.round(height*scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img,0,0,width,height);
+      canvas.toBlob((blob) => { URL.revokeObjectURL(url); resolve(blob || file); }, "image/jpeg", 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
+/* ---------------- IndexedDB layer ---------------- */
+const DB_NAME = "tradingJournalDB", DB_VERSION = 1;
+const STORES = ["trades","tags","plans","journal","instruments","attachments","settings"];
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      STORES.forEach((name) => { if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" }); });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGetAll(storeName) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const req = tx.objectStore(storeName).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbPut(storeName, value) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).put(value);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbDelete(storeName, id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).delete(id);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbClear(storeName) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).clear();
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ---------------- mini charts (no external chart lib) ---------------- */
+function MiniAreaChart({ data, height=240 }) {
+  if (!data.length) return null;
+  const width = 700;
+  const values = data.map((d) => d.equity);
+  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const range = (max-min) || 1;
+  const stepX = data.length > 1 ? width/(data.length-1) : width;
+  const points = data.map((d,i) => [i*stepX, height - ((d.equity-min)/range)*height]);
+  const linePath = points.map((p,i) => (i===0?`M${p[0]},${p[1]}`:`L${p[0]},${p[1]}`)).join(" ");
+  const areaPath = `${linePath} L${points[points.length-1][0]},${height} L0,${height} Z`;
+  const zeroY = height - ((0-min)/range)*height;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="tj-chart-svg" preserveAspectRatio="none">
+      <defs><linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#C9A227" stopOpacity="0.35"/><stop offset="100%" stopColor="#C9A227" stopOpacity="0"/></linearGradient></defs>
+      <line x1="0" y1={zeroY} x2={width} y2={zeroY} stroke="#3A322A" strokeDasharray="4 3" />
+      <path d={areaPath} fill="url(#eqGrad)" />
+      <path d={linePath} fill="none" stroke="#C9A227" strokeWidth="2.5" />
+      {points.map((p,i) => <circle key={i} cx={p[0]} cy={p[1]} r="2.4" fill="#C9A227"><title>{`${fmtDate(data[i].date)}: ${fmtMoney(data[i].equity)}`}</title></circle>)}
+    </svg>
+  );
+}
+function MiniBarChart({ data, height=180 }) {
+  if (!data.length) return null;
+  const width = Math.max(700, data.length*26);
+  const values = data.map((d) => d.pnl);
+  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const range = (max-min) || 1;
+  const zeroY = height - ((0-min)/range)*height;
+  const slot = width/data.length, bw = slot*0.6;
+  return (
+    <div className="tj-chart-wrap">
+      <svg viewBox={`0 0 ${width} ${height}`} className="tj-chart-svg" style={{ width, minWidth: "100%" }}>
+        <line x1="0" y1={zeroY} x2={width} y2={zeroY} stroke="#3A322A" strokeDasharray="4 3" />
+        {data.map((d,i) => {
+          const x = i*slot + (slot-bw)/2;
+          const y = d.pnl>=0 ? height-((d.pnl-min)/range)*height : zeroY;
+          const h = Math.max(Math.abs((d.pnl/range)*height), 1);
+          return <rect key={i} x={x} y={y} width={bw} height={h} rx="2" fill={d.pnl>=0?"#4FA88A":"#C1584A"}><title>{`${fmtDate(d.date)}: ${fmtMoney(d.pnl)}`}</title></rect>;
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/* ---------------- attachment thumbnail ---------------- */
+function AttachmentThumb({ att, onRemove }) {
+  const [url, setUrl] = useState(null);
+  const isImage = (att.mimeType || "").startsWith("image/");
+  useEffect(() => {
+    if (!att.blob) return;
+    const u = URL.createObjectURL(att.blob);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [att.blob]);
+  return (
+    <div className="tj-attach-thumb">
+      {isImage && url ? (
+        <a href={url} target="_blank" rel="noreferrer"><img src={url} alt={att.filename} /></a>
+      ) : (
+        <a href={url || "#"} target="_blank" rel="noreferrer" className="tj-attach-doc">📄<span>{(att.filename||"file").slice(0,14)}</span></a>
+      )}
+      {onRemove && <button className="tj-attach-remove" onClick={() => onRemove(att.id)} aria-label="Remove">✕</button>}
+    </div>
+  );
+}
+
+/* ================= APP ================= */
+function TradingJournal() {
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [trades, setTrades] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [journal, setJournal] = useState([]);
+  const [instrumentOverrides, setInstrumentOverrides] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [settings, setSettings] = useState({ id:"main", accountSize:"", checklist:[...DEFAULT_CHECKLIST] });
+  const [view, setView] = useState("dashboard");
+  const [saveFlash, setSaveFlash] = useState(false);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingTrade, setEditingTrade] = useState(null);
+  const [tradePrefill, setTradePrefill] = useState(null);
+  const [planModalOpen, setPlanModalOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMsg, setImportMsg] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState(null);
+
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [dayFilter, setDayFilter] = useState(null);
+  const [logFilters, setLogFilters] = useState({ search:"", tag:"all", from:"", to:"" });
+  const [sort, setSort] = useState({ key:"date", dir:"desc" });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [t,g,p,j,io,at,se] = await Promise.all([
+          idbGetAll("trades"), idbGetAll("tags"), idbGetAll("plans"), idbGetAll("journal"),
+          idbGetAll("instruments"), idbGetAll("attachments"), idbGetAll("settings"),
+        ]);
+        setTrades(t); setTags(g); setPlans(p); setJournal(j); setInstrumentOverrides(io); setAttachments(at);
+        if (se && se[0]) setSettings({ id:"main", accountSize:"", checklist:[...DEFAULT_CHECKLIST], ...se[0] });
+      } catch (e) { setLoadError(true); }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  const flashSave = () => { setSaveFlash(true); setTimeout(() => setSaveFlash(false), 900); };
+
+  async function upsertTrade(trade) {
+    const id = trade.id || uid();
+    const record = { ...trade, id };
+    await idbPut("trades", record);
+    setTrades((prev) => trade.id ? prev.map((t) => t.id===id?record:t) : [record, ...prev]);
+    if (trade.planId) {
+      const plan = plans.find((p) => p.id===trade.planId);
+      if (plan) { const updated = { ...plan, status:"Taken", linkedTradeId:id }; await idbPut("plans", updated); setPlans((prev) => prev.map((p) => p.id===plan.id?updated:p)); }
+    }
+    flashSave();
+    setModalOpen(false); setEditingTrade(null); setTradePrefill(null);
+  }
+  async function deleteTrade(id) { await idbDelete("trades", id); setTrades((prev) => prev.filter((t) => t.id!==id)); }
+
+  async function addTag(name, color, icon) {
+    const clean = name.trim();
+    if (!clean || tags.some((t) => t.name.toLowerCase()===clean.toLowerCase())) return;
+    const record = { id:uid(), name:clean, color, icon: icon || "" };
+    await idbPut("tags", record); setTags((prev) => [...prev, record]);
+  }
+  async function deleteTag(id) {
+    const tag = tags.find((t) => t.id===id);
+    await idbDelete("tags", id); setTags((prev) => prev.filter((t) => t.id!==id));
+    if (tag) {
+      const affected = trades.filter((t) => t.tag===tag.name);
+      for (const t of affected) { const upd = { ...t, tag:"" }; await idbPut("trades", upd); }
+      setTrades((prev) => prev.map((t) => t.tag===tag.name ? { ...t, tag:"" } : t));
+    }
+  }
+
+  async function upsertPlan(plan) {
+    const id = plan.id || uid();
+    const record = { ...plan, id, createdAt: plan.createdAt || todayStr() };
+    await idbPut("plans", record);
+    setPlans((prev) => plan.id && prev.some((p) => p.id===id) ? prev.map((p) => p.id===id?record:p) : [record, ...prev.filter((p) => p.id!==id)]);
+    flashSave();
+    setPlanModalOpen(false); setEditingPlan(null);
+  }
+  async function deletePlan(id) {
+    const orphans = attachments.filter((a) => a.planId===id);
+    for (const a of orphans) await idbDelete("attachments", a.id);
+    setAttachments((prev) => prev.filter((a) => a.planId!==id));
+    await idbDelete("plans", id); setPlans((prev) => prev.filter((p) => p.id!==id));
+  }
+  function logPlanAsTrade(plan) {
+    const acct = parseFloat(settings.accountSize);
+    const riskPct = parseFloat(plan.riskPercent);
+    const riskDollars = (!isNaN(acct) && !isNaN(riskPct)) ? ((acct*riskPct)/100).toFixed(2) : "";
+    setTradePrefill({
+      date: plan.date, symbol: plan.symbol,
+      direction: plan.direction==="Short" ? "short" : "long",
+      tag: plan.setupType || "", risk: riskDollars,
+      notes: plan.thesis || "", planId: plan.id,
+    });
+    setEditingTrade(null); setModalOpen(true);
+  }
+
+  async function addAttachment(planId, file) {
+    let blob = file;
+    if (file.type.startsWith("image/")) blob = await resizeImageFile(file);
+    const record = { id:uid(), planId, filename:file.name, mimeType: blob.type || file.type, blob, size: blob.size, createdAt: Date.now() };
+    await idbPut("attachments", record);
+    setAttachments((prev) => [...prev, record]);
+    return record;
+  }
+  async function removeAttachment(id) { await idbDelete("attachments", id); setAttachments((prev) => prev.filter((a) => a.id!==id)); }
+
+  async function upsertJournalForDate(entry) {
+    const existing = journal.find((j) => j.date===entry.date);
+    const record = { ...entry, id: existing ? existing.id : uid() };
+    await idbPut("journal", record);
+    setJournal((prev) => existing ? prev.map((j) => j.id===record.id?record:j) : [record, ...prev]);
+    flashSave();
+    return record;
+  }
+
+  async function saveInstrumentSpec(symbol, updated) {
+    await idbPut("instruments", updated);
+    setInstrumentOverrides((prev) => [...prev.filter((o) => o.symbol!==symbol), updated]);
+  }
+  async function resetInstrument(symbol) {
+    const existing = instrumentOverrides.find((o) => o.symbol===symbol);
+    if (existing) await idbDelete("instruments", existing.id || symbol);
+    setInstrumentOverrides((prev) => prev.filter((o) => o.symbol!==symbol));
+  }
+  async function deleteCustomInstrument(symbol) { await resetInstrument(symbol); }
+
+  async function saveSettings(next) { const record = { ...next, id:"main" }; await idbPut("settings", record); setSettings(record); }
+
+  const instruments = useMemo(() => {
+    const map = {};
+    DEFAULT_INSTRUMENTS.forEach((i) => (map[i.symbol] = i));
+    instrumentOverrides.forEach((i) => (map[i.symbol] = { ...i, id: i.symbol }));
+    return Object.values(map).sort((a,b) => a.category.localeCompare(b.category) || a.symbol.localeCompare(b.symbol));
+  }, [instrumentOverrides]);
+
+  function handleCsvFile(file) {
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: async (results) => {
+        let added = 0, skipped = 0;
+        const newTags = [...tags]; const newTradeRecords = [];
+        for (const row of results.data) {
+          const date = (row.date||"").trim(); const symbol = (row.symbol||"").trim().toUpperCase();
+          if (!date || !symbol) { skipped++; continue; }
+          const inst = instruments.find((i) => i.symbol===symbol);
+          const pointSize = row.pointSize || inst?.pointSize || 1;
+          const pointValue = row.pointValue || inst?.pointValue || 1;
+          let pnl = parseFloat(row.pnl);
+          if (isNaN(pnl)) { const calc = calcPnl({ entry:row.entry, exit:row.exit, lots:row.lots, direction:row.direction, fees:row.fees, pointSize, pointValue }); pnl = calc ? calc.pnl : 0; }
+          const tagName = (row.tag||"").trim();
+          if (tagName && !newTags.some((t) => t.name.toLowerCase()===tagName.toLowerCase())) newTags.push({ id:uid(), name:tagName, color:TAG_COLORS[newTags.length % TAG_COLORS.length], icon:"" });
+          const rec = { id:uid(), date, symbol, category: row.category || inst?.category || "Other",
+            direction: (row.direction||"long").toLowerCase()==="short"?"short":"long",
+            entry: row.entry||"", exit: row.exit||"", lots: row.lots||"", pointSize, pointValue,
+            fees: row.fees||"", risk: row.risk||"", pnl, tag: tagName, session: row.session||"", notes: row.notes||"" };
+          newTradeRecords.push(rec); added++;
+        }
+        for (const rec of newTradeRecords) await idbPut("trades", rec);
+        for (const t of newTags) if (!tags.some((x) => x.id===t.id)) await idbPut("tags", t);
+        setTrades((prev) => [...newTradeRecords, ...prev]);
+        if (newTags.length !== tags.length) setTags(newTags);
+        setImportMsg(`Imported ${added} trade${added===1?"":"s"}${skipped?`, skipped ${skipped} (missing date/symbol)`:""}.`);
+      },
+      error: (err) => setImportMsg(`Import failed: ${err.message}`),
+    });
+  }
+  function exportCsv() {
+    const rows = trades.map((t) => Object.fromEntries(CSV_HEADERS.map((h) => [h, t[h] ?? ""])));
+    downloadBlob(Papa.unparse({ fields: CSV_HEADERS, data: rows }), `trading-journal-export-${todayStr()}.csv`, "text/csv");
+  }
+  function downloadTemplate() {
+    const csv = Papa.unparse({ fields: CSV_HEADERS, data: [["2026-08-12","XAUUSD","Metals","long","2415.20","2421.80","0.50","0.01","1","0","150","44.50","Breakout","New York","Clean break of London high"]] });
+    downloadBlob(csv, "trading-journal-template.csv", "text/csv");
+  }
+  function exportBackup() {
+    const backup = { type:"trading-journal-backup", version:2, exportedAt:new Date().toISOString(), trades, tags, plans, journal, instrumentOverrides, settings, note:"Attachments (images/files) are not included — they stay in this browser's storage." };
+    downloadBlob(JSON.stringify(backup, null, 2), `trading-journal-backup-${todayStr()}.json`, "application/json");
+  }
+  function importBackup(file) {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!data || data.type !== "trading-journal-backup") { setRestoreMsg("That doesn't look like a Trading Journal backup file."); return; }
+        for (const t of data.trades||[]) await idbPut("trades", t);
+        for (const g of data.tags||[]) await idbPut("tags", g);
+        for (const p of data.plans||[]) await idbPut("plans", p);
+        for (const j of data.journal||[]) await idbPut("journal", j);
+        for (const i of data.instrumentOverrides||[]) await idbPut("instruments", i);
+        if (data.settings) await idbPut("settings", { ...data.settings, id:"main" });
+        setTrades(data.trades||[]); setTags(data.tags||[]); setPlans(data.plans||[]); setJournal(data.journal||[]);
+        setInstrumentOverrides(data.instrumentOverrides||[]); if (data.settings) setSettings({ ...data.settings, id:"main" });
+        setRestoreMsg(`Restored ${(data.trades||[]).length} trade(s), ${(data.plans||[]).length} plan(s), ${(data.journal||[]).length} journal entr${(data.journal||[]).length===1?"y":"ies"}.`);
+      } catch (e) { setRestoreMsg("Couldn't read that file — make sure it's a backup exported from this app."); }
+    };
+    reader.readAsText(file);
+  }
+  async function resetAllData() {
+    for (const s of ["trades","tags","plans","journal","instruments","attachments"]) await idbClear(s);
+    setTrades([]); setTags([]); setPlans([]); setJournal([]); setInstrumentOverrides([]); setAttachments([]);
+    setConfirmReset(false);
+  }
+
+  /* ---------- derived ---------- */
+  const stats = useMemo(() => {
+    if (!trades.length) return null;
+    const sorted = [...trades].sort((a,b) => new Date(a.date)-new Date(b.date));
+    let cum = 0; const equity = sorted.map((t) => { cum += t.pnl; return { date:t.date, equity:cum }; });
+    const wins = trades.filter((t) => t.pnl>0), losses = trades.filter((t) => t.pnl<0);
+    const netPnl = trades.reduce((a,t) => a+t.pnl, 0);
+    const winRate = (wins.length/trades.length)*100;
+    const grossWin = wins.reduce((a,t) => a+t.pnl, 0);
+    const grossLoss = Math.abs(losses.reduce((a,t) => a+t.pnl, 0));
+    const profitFactor = grossLoss>0 ? grossWin/grossLoss : (grossWin>0?Infinity:0);
+    const avgWin = wins.length ? grossWin/wins.length : 0;
+    const avgLoss = losses.length ? grossLoss/losses.length : 0;
+    const best = trades.reduce((m,t) => t.pnl>m.pnl?t:m, trades[0]);
+    const worst = trades.reduce((m,t) => t.pnl<m.pnl?t:m, trades[0]);
+    let streak=0, streakType=null;
+    for (let i=sorted.length-1;i>=0;i--) { const isWin=sorted[i].pnl>0; if (streakType===null){streakType=isWin;streak=1;} else if (isWin===streakType) streak++; else break; }
+    const rTrades = trades.filter((t) => parseFloat(t.risk)>0);
+    const avgR = rTrades.length ? rTrades.reduce((a,t) => a+t.pnl/parseFloat(t.risk),0)/rTrades.length : null;
+    return { equity, netPnl, winRate, profitFactor, avgWin, avgLoss, best, worst, streak, streakType, wins:wins.length, losses:losses.length, total:trades.length, avgR };
+  }, [trades]);
+
+  const dailyMap = useMemo(() => { const m={}; trades.forEach((t) => { m[t.date]=(m[t.date]||0)+t.pnl; }); return m; }, [trades]);
+  const dailyBars = useMemo(() => Object.entries(dailyMap).sort((a,b) => new Date(a[0])-new Date(b[0])).map(([date,pnl]) => ({date,pnl})), [dailyMap]);
+  const journalDates = useMemo(() => new Set(journal.map((j) => j.date)), [journal]);
+  const tagStats = useMemo(() => tags.map((tag) => {
+    const list = trades.filter((t) => t.tag===tag.name);
+    const net = list.reduce((a,t) => a+t.pnl, 0);
+    const wins = list.filter((t) => t.pnl>0).length;
+    return { ...tag, count:list.length, net, winRate: list.length ? (wins/list.length)*100 : 0 };
+  }), [tags, trades]);
+
+  const filteredTrades = useMemo(() => {
+    let list = [...trades];
+    if (dayFilter) list = list.filter((t) => t.date===dayFilter);
+    if (logFilters.search) { const s=logFilters.search.toLowerCase(); list = list.filter((t) => t.symbol.toLowerCase().includes(s) || (t.notes||"").toLowerCase().includes(s)); }
+    if (logFilters.tag !== "all") list = list.filter((t) => logFilters.tag==="none" ? !t.tag : t.tag===logFilters.tag);
+    if (logFilters.from) list = list.filter((t) => t.date >= logFilters.from);
+    if (logFilters.to) list = list.filter((t) => t.date <= logFilters.to);
+    list.sort((a,b) => { let av=a[sort.key], bv=b[sort.key]; if (av<bv) return sort.dir==="asc"?-1:1; if (av>bv) return sort.dir==="asc"?1:-1; return 0; });
+    return list;
+  }, [trades, logFilters, sort, dayFilter]);
+  const toggleSort = (key) => setSort((s) => s.key===key ? { key, dir:s.dir==="asc"?"desc":"asc" } : { key, dir:"desc" });
+
+  const TABS = [["dashboard","Dashboard"],["calendar","Calendar"],["plan","Plan & Journal"],["log","Trade Log"],["setup","Setup"]];
+
+  return (
+    <div className="tj-app">
+      {loading ? (
+        <div className="tj-loading"><div className="tj-spinner" /><span>Opening your ledger…</span></div>
+      ) : loadError ? (
+        <div className="tj-loading"><span>Couldn't open local storage. Try a different browser or check storage permissions.</span></div>
+      ) : (
+        <React.Fragment>
+          <header className="tj-header">
+            <div className="tj-brand"><span className="tj-brand-mark">§</span><div><h1>Trading Journal</h1><p>Plan it, trade it, reckon it.</p></div></div>
+            <div className="tj-header-actions">
+              <span className={`tj-saved ${saveFlash?"show":""}`}>Saved</span>
+              <button className="tj-btn tj-btn-ghost" onClick={() => setImportOpen(true)}>Import CSV</button>
+              <button className="tj-btn tj-btn-primary" onClick={() => { setEditingTrade(null); setTradePrefill(null); setModalOpen(true); }}>+ Add trade</button>
+            </div>
+          </header>
+          <nav className="tj-tabs">{TABS.map(([k,label]) => <button key={k} className={`tj-tab ${view===k?"active":""}`} onClick={() => { setView(k); setDayFilter(null); }}>{label}</button>)}</nav>
+          <main>
+            {view==="dashboard" && <Dashboard stats={stats} dailyBars={dailyBars} onAdd={() => { setEditingTrade(null); setTradePrefill(null); setModalOpen(true); }} />}
+            {view==="calendar" && (
+              <CalendarView month={calMonth} year={calYear} dailyMap={dailyMap} trades={trades} journalDates={journalDates}
+                onNav={(dir) => { let m=calMonth+dir, y=calYear; if (m<0){m=11;y--;} if (m>11){m=0;y++;} setCalMonth(m); setCalYear(y); }}
+                onDayClick={(date) => { setDayFilter(date); setView("log"); }} />
+            )}
+            {view==="plan" && (
+              <PlanAndJournal plans={plans} tags={tags} instruments={instruments} journal={journal} trades={trades} settings={settings}
+                onAddPlan={() => { setEditingPlan(null); setPlanModalOpen(true); }}
+                onEditPlan={(p) => { setEditingPlan(p); setPlanModalOpen(true); }}
+                onDeletePlan={deletePlan} onLogTrade={logPlanAsTrade}
+                onSaveJournal={upsertJournalForDate} />
+            )}
+            {view==="log" && (
+              <TradeLog trades={filteredTrades} allCount={trades.length} tags={tags} filters={logFilters} setFilters={setLogFilters}
+                dayFilter={dayFilter} clearDayFilter={() => setDayFilter(null)} sort={sort} toggleSort={toggleSort}
+                onEdit={(t) => { setEditingTrade(t); setTradePrefill(null); setModalOpen(true); }} onDelete={deleteTrade} onExport={exportCsv} />
+            )}
+            {view==="setup" && (
+              <SetupView tagStats={tagStats} onAddTag={addTag} onDeleteTag={deleteTag}
+                instruments={instruments} onSaveInstrument={saveInstrumentSpec} onResetInstrument={resetInstrument} onDeleteInstrument={deleteCustomInstrument}
+                settings={settings} onSaveSettings={saveSettings}
+                onExport={exportCsv} onTemplate={downloadTemplate} onImport={() => setImportOpen(true)}
+                onExportBackup={exportBackup} onImportBackup={importBackup} restoreMsg={restoreMsg}
+                confirmReset={confirmReset} setConfirmReset={setConfirmReset} onReset={resetAllData} tradeCount={trades.length} />
+            )}
+          </main>
+        </React.Fragment>
+      )}
+
+      {modalOpen && (
+        <TradeModal trade={editingTrade} prefill={tradePrefill} tags={tags} instruments={instruments}
+          onClose={() => { setModalOpen(false); setEditingTrade(null); setTradePrefill(null); }} onSave={upsertTrade} />
+      )}
+      {planModalOpen && (
+        <PlanModal plan={editingPlan} tags={tags} instruments={instruments} settings={settings}
+          attachments={attachments.filter((a) => a.planId === (editingPlan ? editingPlan.id : editingPlan))}
+          allAttachments={attachments} onAddAttachment={addAttachment} onRemoveAttachment={removeAttachment}
+          onClose={() => { setPlanModalOpen(false); setEditingPlan(null); }} onSave={upsertPlan} />
+      )}
+      {importOpen && (
+        <div className="tj-overlay" onClick={() => { setImportOpen(false); setImportMsg(null); }}>
+          <div className="tj-modal tj-modal-sm" onClick={(e) => e.stopPropagation()}>
+            <h2>Import trades from CSV</h2>
+            <p className="tj-muted">Columns: {CSV_HEADERS.join(", ")}. If pnl is blank, it's calculated from entry, exit, lots and the instrument's point value.</p>
+            <div className="tj-import-actions">
+              <button className="tj-btn tj-btn-ghost" onClick={downloadTemplate}>Download template</button>
+              <label className="tj-btn tj-btn-primary" style={{ cursor:"pointer" }}>Choose CSV file
+                <input type="file" accept=".csv" style={{ display:"none" }} onChange={(e) => { if (e.target.files[0]) handleCsvFile(e.target.files[0]); e.target.value=""; }} />
+              </label>
+            </div>
+            {importMsg && <p className="tj-import-msg">{importMsg}</p>}
+            <div className="tj-modal-footer"><button className="tj-btn tj-btn-ghost" onClick={() => { setImportOpen(false); setImportMsg(null); }}>Done</button></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================= DASHBOARD ================= */
+function Dashboard({ stats, dailyBars, onAdd }) {
+  if (!stats) return (
+    <div className="tj-empty"><span className="tj-empty-mark">§</span><h2>Your ledger is empty</h2><p>Log your first trade, or import a CSV of past trades, to see your stats here.</p><button className="tj-btn tj-btn-primary" onClick={onAdd}>+ Add your first trade</button></div>
+  );
+  const pf = stats.profitFactor===Infinity ? "∞" : stats.profitFactor.toFixed(2);
+  return (
+    <div>
+      <div className="tj-stat-grid">
+        <StatCard label="Net P&L" value={fmtMoney(stats.netPnl)} tone={stats.netPnl>=0?"profit":"loss"} big />
+        <StatCard label="Win rate" value={fmtPct(stats.winRate)} sub={`${stats.wins}W / ${stats.losses}L`} />
+        <StatCard label="Profit factor" value={pf} />
+        <StatCard label="Total trades" value={stats.total} />
+        <StatCard label="Avg win" value={fmtMoney(stats.avgWin)} tone="profit" />
+        <StatCard label="Avg loss" value={fmtMoney(-stats.avgLoss)} tone="loss" />
+        <StatCard label="Best trade" value={fmtMoney(stats.best.pnl)} sub={stats.best.symbol} tone="profit" />
+        <StatCard label="Worst trade" value={fmtMoney(stats.worst.pnl)} sub={stats.worst.symbol} tone="loss" />
+        {stats.avgR!==null && <StatCard label="Avg R-multiple" value={`${stats.avgR>=0?"+":""}${stats.avgR.toFixed(2)}R`} tone={stats.avgR>=0?"profit":"loss"} />}
+        <StatCard label={stats.streakType?"Win streak":"Loss streak"} value={stats.streak} tone={stats.streakType?"profit":"loss"} />
+      </div>
+      <div className="tj-panel tj-ledger-lines"><h3>Equity curve</h3><div className="tj-chart-wrap"><MiniAreaChart data={stats.equity} /></div></div>
+      <div className="tj-panel"><h3>Daily P&amp;L</h3><MiniBarChart data={dailyBars} /></div>
+    </div>
+  );
+}
+function StatCard({ label, value, sub, tone, big }) { return <div className={`tj-stat ${big?"big":""}`}><span className="tj-stat-label">{label}</span><span className={`tj-stat-value num ${tone||""}`}>{value}</span>{sub && <span className="tj-stat-sub">{sub}</span>}</div>; }
+
+/* ================= CALENDAR ================= */
+function CalendarView({ month, year, dailyMap, trades, journalDates, onNav, onDayClick }) {
+  const first = new Date(year, month, 1);
+  const startWeekday = first.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const cells = [];
+  for (let i=0;i<startWeekday;i++) cells.push(null);
+  for (let d=1; d<=daysInMonth; d++) cells.push({ d, date:`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}` });
+  while (cells.length % 7 !== 0) cells.push(null);
+  const rows = []; for (let i=0;i<cells.length;i+=7) rows.push(cells.slice(i,i+7));
+  const monthPnl = Object.entries(dailyMap).filter(([date]) => { const dt=new Date(date+"T00:00:00"); return dt.getMonth()===month && dt.getFullYear()===year; }).reduce((a,[,v]) => a+v, 0);
+  const countForDay = (dateStr) => trades.filter((t) => t.date===dateStr).length;
+  return (
+    <div className="tj-calendar">
+      <div className="tj-cal-header">
+        <button className="tj-btn tj-btn-ghost" onClick={() => onNav(-1)}>‹</button>
+        <div className="tj-cal-title"><h3>{MONTH_NAMES[month]} {year}</h3><span className={`num ${monthPnl>=0?"profit":"loss"}`}>{fmtMoney(monthPnl)}</span></div>
+        <button className="tj-btn tj-btn-ghost" onClick={() => onNav(1)}>›</button>
+      </div>
+      <div className="tj-cal-week tj-cal-weekhead">{WEEKDAYS.map((w) => <div key={w} className="tj-cal-wd">{w}</div>)}<div className="tj-cal-wd">Week</div></div>
+      {rows.map((row, ri) => {
+        const weekTotal = row.reduce((a,c) => a + (c && dailyMap[c.date]!==undefined ? dailyMap[c.date] : 0), 0);
+        const hasAny = row.some((c) => c && dailyMap[c.date]!==undefined);
+        return (
+          <div className="tj-cal-week" key={ri}>
+            {row.map((c, ci) => {
+              if (!c) return <div key={ci} className="tj-cal-cell empty" />;
+              const pnl = dailyMap[c.date]; const count = countForDay(c.date); const isToday = c.date===todayStr(); const hasJournal = journalDates.has(c.date);
+              return (
+                <button key={ci} className={`tj-cal-cell ${pnl!==undefined?(pnl>=0?"profit":"loss"):""} ${isToday?"today":""}`} disabled={!count} onClick={() => onDayClick(c.date)}>
+                  {hasJournal && <span className="tj-cal-journal-dot" title="Journal entry" />}
+                  <span className="tj-cal-daynum">{c.d}</span>
+                  {pnl!==undefined && <span className="num tj-cal-pnl">{fmtMoney(pnl)}</span>}
+                  {count>0 && <span className="tj-cal-count">{count} trade{count>1?"s":""}</span>}
+                </button>
+              );
+            })}
+            <div className={`tj-week-total ${hasAny?(weekTotal>=0?"profit":"loss"):""}`}>{hasAny ? <span className="num">{fmtMoney(weekTotal)}</span> : <span className="tj-muted">—</span>}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ================= TRADE LOG ================= */
+function TradeLog({ trades, allCount, tags, filters, setFilters, dayFilter, clearDayFilter, sort, toggleSort, onEdit, onDelete, onExport }) {
+  return (
+    <div>
+      <div className="tj-log-toolbar">
+        <input className="tj-input" placeholder="Search symbol or notes…" value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search:e.target.value }))} />
+        <select className="tj-input" value={filters.tag} onChange={(e) => setFilters((f) => ({ ...f, tag:e.target.value }))}>
+          <option value="all">All tags</option><option value="none">Untagged</option>
+          {tags.map((t) => <option key={t.id} value={t.name}>{t.icon?t.icon+" ":""}{t.name}</option>)}
+        </select>
+        <input className="tj-input" type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from:e.target.value }))} />
+        <span className="tj-muted">to</span>
+        <input className="tj-input" type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to:e.target.value }))} />
+        <button className="tj-btn tj-btn-ghost" onClick={onExport}>Export CSV</button>
+      </div>
+      {dayFilter && <div className="tj-day-filter">Showing trades on <strong>{fmtDate(dayFilter)}</strong><button className="tj-link" onClick={clearDayFilter}>Clear</button></div>}
+      {allCount===0 ? <div className="tj-empty small"><p>No trades logged yet.</p></div> : trades.length===0 ? <div className="tj-empty small"><p>No trades match these filters.</p></div> : (
+        <div className="tj-table-wrap">
+          <table className="tj-table">
+            <thead><tr>
+              {[["date","Date"],["symbol","Symbol"],["category","Category"],["direction","Dir"],["pnl","P&L"],["tag","Tag"]].map(([k,label]) => <th key={k} onClick={() => toggleSort(k)} className={sort.key===k?"sorted":""}>{label} {sort.key===k?(sort.dir==="asc"?"▲":"▼"):""}</th>)}
+              <th>R</th><th>Session</th><th>Notes</th><th></th>
+            </tr></thead>
+            <tbody>
+              {trades.map((t) => {
+                const r = parseFloat(t.risk)>0 ? t.pnl/parseFloat(t.risk) : null;
+                const tag = tags.find((tg) => tg.name===t.tag);
+                return (
+                  <tr key={t.id}>
+                    <td className="num">{fmtDate(t.date)}</td>
+                    <td className="tj-symbol">{t.symbol}</td>
+                    <td className="tj-muted">{t.category}</td>
+                    <td><span className={`tj-dir ${t.direction}`}>{t.direction}</span></td>
+                    <td className={`num ${t.pnl>=0?"profit":"loss"}`}>{fmtMoney(t.pnl)}</td>
+                    <td>{t.tag && <span className="tj-tag-pill">{tag?.icon} {t.tag}</span>}</td>
+                    <td className="num tj-muted">{r!==null ? `${r>=0?"+":""}${r.toFixed(2)}R` : "—"}</td>
+                    <td className="tj-muted">{t.session || "—"}</td>
+                    <td className="tj-notes" title={t.notes}>{t.notes ? (t.notes.length>24?t.notes.slice(0,24)+"…":t.notes) : ""}</td>
+                    <td className="tj-row-actions"><button className="tj-icon-btn" onClick={() => onEdit(t)} aria-label="Edit">✎</button><button className="tj-icon-btn" onClick={() => onDelete(t.id)} aria-label="Delete">✕</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================= PLAN & JOURNAL (merged) ================= */
+function PlanAndJournal({ plans, tags, instruments, journal, trades, settings, onAddPlan, onEditPlan, onDeletePlan, onLogTrade, onSaveJournal }) {
+  const [statusFilter, setStatusFilter] = useState("active");
+  const [jDate, setJDate] = useState(todayStr());
+  const [jForm, setJForm] = useState(() => ({ date: todayStr(), rating:0, mood:[], marketContext:"", content:"" }));
+
+  useEffect(() => {
+    const existing = journal.find((j) => j.date===jDate);
+    setJForm(existing ? { ...existing } : { date: jDate, rating:0, mood:[], marketContext:"", content:"" });
+  }, [jDate, journal]);
+
+  const filtered = plans.filter((p) => statusFilter==="all" ? true : statusFilter==="active" ? ["Watching","Triggered"].includes(p.status) : p.status===statusFilter)
+    .sort((a,b) => new Date(b.date)-new Date(a.date));
+
+  function toggleMood(m) { setJForm((f) => ({ ...f, mood: f.mood.includes(m) ? f.mood.filter((x) => x!==m) : [...f.mood, m] })); }
+  function saveJournal() { onSaveJournal(jForm); }
+
+  const acct = parseFloat(settings.accountSize);
+  const recentJournal = [...journal].sort((a,b) => new Date(b.date)-new Date(a.date)).slice(0,6);
+
+  return (
+    <div>
+      <div className="tj-plan-toolbar">
+        <select className="tj-input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="active">Active (Watching + Triggered)</option><option value="all">All plans</option>
+          {PLAN_STATUSES.map((s) => <option key={s} value={s}>{s} only</option>)}
+        </select>
+        <button className="tj-btn tj-btn-primary" onClick={onAddPlan} style={{ marginLeft:"auto" }}>+ Plan a trade</button>
+      </div>
+
+      {plans.length===0 ? (
+        <div className="tj-empty"><span className="tj-empty-mark">§</span><h2>No plans yet</h2><p>Before the market opens, write down what you're watching, your levels, your risk, and your checklist — decide it here, not in the moment.</p><button className="tj-btn tj-btn-primary" onClick={onAddPlan}>+ Plan your first trade</button></div>
+      ) : filtered.length===0 ? (
+        <div className="tj-empty small"><p>Nothing here right now.</p></div>
+      ) : (
+        <div className="tj-table-wrap">
+          <table className="tj-table">
+            <thead><tr><th>Date</th><th>Instrument</th><th>Session</th><th>Risk %</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Checklist</th><th>Status</th><th>📎</th><th></th></tr></thead>
+            <tbody>
+              {filtered.map((p) => {
+                const entryNum = parseFloat(p.entryZone), sl = parseFloat(p.stopLoss), tp = parseFloat(p.takeProfit);
+                let rr = null;
+                if (!isNaN(entryNum) && !isNaN(sl) && !isNaN(tp)) { const risk=Math.abs(entryNum-sl), reward=Math.abs(tp-entryNum); if (risk>0) rr = reward/risk; }
+                const riskPct = parseFloat(p.riskPercent);
+                const riskDollar = (!isNaN(acct) && !isNaN(riskPct)) ? fmtMoney((acct*riskPct)/100) : null;
+                const checklist = p.checklist || [];
+                const attCount = p.attachmentIds ? p.attachmentIds.length : 0;
+                return (
+                  <tr key={p.id} style={{ cursor:"pointer" }}>
+                    <td className="num" onClick={() => onEditPlan(p)}>{fmtDate(p.date)}</td>
+                    <td className="tj-symbol" onClick={() => onEditPlan(p)}>{p.symbol}</td>
+                    <td className="tj-muted" onClick={() => onEditPlan(p)}>{p.session || "—"}</td>
+                    <td className="num" onClick={() => onEditPlan(p)}>{p.riskPercent ? `${p.riskPercent}%` : "—"}{riskDollar ? <span className="tj-muted"> ({riskDollar})</span> : ""}</td>
+                    <td className="num" onClick={() => onEditPlan(p)}>{p.entryZone || "—"}</td>
+                    <td className="num" onClick={() => onEditPlan(p)}>{p.stopLoss || "—"}</td>
+                    <td className="num" onClick={() => onEditPlan(p)}>{p.takeProfit || "—"}</td>
+                    <td onClick={() => onEditPlan(p)}>{rr!==null ? <span className="tj-rr-pill">1:{rr.toFixed(2)}</span> : "—"}</td>
+                    <td onClick={() => onEditPlan(p)}>
+                      <div className="tj-check-cell">
+                        {checklist.length===0 ? <span className="tj-muted">—</span> : checklist.map((c,i) => <span key={i} className={`tj-check-glyph ${c.status||""}`} title={c.criterion}>{c.status==="pass"?"✓":c.status==="fail"?"✗":"–"}</span>)}
+                      </div>
+                    </td>
+                    <td onClick={() => onEditPlan(p)}><span className={`tj-status-pill status-${p.status.toLowerCase()}`}>{p.status}</span></td>
+                    <td className="tj-muted" onClick={() => onEditPlan(p)}>{attCount>0 ? attCount : "—"}</td>
+                    <td className="tj-row-actions">
+                      {["Watching","Triggered"].includes(p.status) && <button className="tj-icon-btn" onClick={() => onLogTrade(p)} title="Log as trade">▶</button>}
+                      <button className="tj-icon-btn" onClick={() => onEditPlan(p)} aria-label="Edit">✎</button>
+                      <button className="tj-icon-btn" onClick={() => onDeletePlan(p.id)} aria-label="Delete">✕</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="tj-panel tj-journal-panel">
+        <div className="tj-journal-datebar">
+          <button className="tj-btn tj-btn-ghost" onClick={() => { const d=new Date(jDate+"T00:00:00"); d.setDate(d.getDate()-1); setJDate(d.toISOString().slice(0,10)); }}>‹</button>
+          <h3>Day journal — {fmtDate(jDate)}</h3>
+          <input className="tj-input" type="date" value={jDate} onChange={(e) => setJDate(e.target.value)} />
+          <button className="tj-btn tj-btn-ghost" onClick={() => { const d=new Date(jDate+"T00:00:00"); d.setDate(d.getDate()+1); setJDate(d.toISOString().slice(0,10)); }}>›</button>
+        </div>
+        {(() => { const dayTrades = trades.filter((t) => t.date===jDate); const dayPnl = dayTrades.reduce((a,t) => a+t.pnl,0);
+          return dayTrades.length>0 ? <p className="tj-muted" style={{ marginTop:-6, marginBottom:12 }}>{dayTrades.length} trade{dayTrades.length>1?"s":""} that day · <span className={dayPnl>=0?"profit num":"loss num"}>{fmtMoney(dayPnl)}</span></p> : null; })()}
+        <div className="tj-form-grid">
+          <label>Day rating<div className="tj-stars editable">{[1,2,3,4,5].map((n) => <span key={n} className={n<=(jForm.rating||0)?"on":""} onClick={() => setJForm((f) => ({ ...f, rating: n===f.rating?0:n }))}>★</span>)}</div></label>
+          <label>Market context<input className="tj-input" placeholder="e.g. Choppy NY session, NFP day" value={jForm.marketContext} onChange={(e) => setJForm((f) => ({ ...f, marketContext:e.target.value }))} /></label>
+        </div>
+        <div className="tj-notes-label"><span>How were you trading today?</span><div className="tj-mood-row editable">{MOOD_TAGS.map((m) => <button type="button" key={m} className={`tj-mood-chip ${jForm.mood.includes(m)?"active":""}`} onClick={() => toggleMood(m)}>{m}</button>)}</div></div>
+        <label className="tj-notes-label">Reflection<textarea className="tj-input tj-textarea" rows={6} placeholder="How did the day go? What did you see in the market? What would you do differently?" value={jForm.content} onChange={(e) => setJForm((f) => ({ ...f, content:e.target.value }))} /></label>
+        <div className="tj-modal-footer" style={{ marginTop:14 }}><button className="tj-btn tj-btn-primary" onClick={saveJournal}>Save journal entry</button></div>
+
+        {recentJournal.length>0 && (
+          <div className="tj-journal-recent">
+            <span className="tj-muted">Recent entries</span>
+            {recentJournal.map((j) => (
+              <div key={j.id} className="tj-journal-recent-item" onClick={() => setJDate(j.date)}>
+                <strong>{fmtDate(j.date)}</strong>
+                <span className="tj-stars">{[1,2,3,4,5].map((n) => <span key={n} className={n<=(j.rating||0)?"on":""}>★</span>)}</span>
+                <span className="tj-muted" style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ================= SETUP ================= */
+function SetupView({ tagStats, onAddTag, onDeleteTag, instruments, onSaveInstrument, onResetInstrument, onDeleteInstrument, settings, onSaveSettings, onExport, onTemplate, onImport, onExportBackup, onImportBackup, restoreMsg, confirmReset, setConfirmReset, onReset, tradeCount }) {
+  const [name, setName] = useState(""); const [color, setColor] = useState(TAG_COLORS[0]); const [icon, setIcon] = useState("");
+  const [addingInstrument, setAddingInstrument] = useState(false);
+  const [newInst, setNewInst] = useState({ symbol:"", category:"Forex", pointSize:"0.0001", pointValue:"10" });
+  const [checklistDraft, setChecklistDraft] = useState("");
+  const [accountSize, setAccountSize] = useState(settings.accountSize || "");
+  const backupInputRef = useRef(null);
+
+  function addChecklistItem() { if (!checklistDraft.trim()) return; onSaveSettings({ ...settings, checklist:[...(settings.checklist||[]), checklistDraft.trim()] }); setChecklistDraft(""); }
+  function removeChecklistItem(i) { onSaveSettings({ ...settings, checklist: settings.checklist.filter((_,idx) => idx!==i) }); }
+
+  return (
+    <div>
+      <div className="tj-panel">
+        <h3>Strategy tags</h3>
+        <p className="tj-muted">Tag trades and plans by setup. Pick a color and an optional symbol.</p>
+        <div className="tj-tag-add">
+          <input className="tj-input" placeholder="New tag, e.g. Breakout" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key==="Enter" && name.trim()) { onAddTag(name, color, icon); setName(""); setIcon(""); } }} />
+          <button className="tj-btn tj-btn-primary" onClick={() => { if (name.trim()) { onAddTag(name, color, icon); setName(""); setIcon(""); } }}>Add tag</button>
+        </div>
+        <div style={{ display:"flex", gap:20, flexWrap:"wrap", marginBottom:6 }}>
+          <div><div className="tj-muted" style={{ marginBottom:6 }}>Color</div><div className="tj-swatches">{TAG_COLORS.map((c) => <button key={c} className={`tj-swatch ${color===c?"active":""}`} style={{ background:c }} onClick={() => setColor(c)} aria-label={c} />)}</div></div>
+          <div><div className="tj-muted" style={{ marginBottom:6 }}>Symbol</div><div className="tj-icon-picker">{TAG_ICONS.map((ic,i) => <button key={i} type="button" className={`tj-icon-opt ${icon===ic?"active":""}`} onClick={() => setIcon(ic)}>{ic || "·"}</button>)}</div></div>
+        </div>
+        {tagStats.length===0 ? <p className="tj-muted" style={{ marginTop:16 }}>No tags yet. Try "Breakout", "Pullback", or "Reversal" to start.</p> : (
+          <div className="tj-tag-table">
+            {tagStats.map((t) => (
+              <div key={t.id} className="tj-tag-row">
+                <span className="tj-tag-dot" style={{ background:t.color+"33", border:`1px solid ${t.color}` }}>{t.icon}</span>
+                <span className="tj-tag-name">{t.name}</span>
+                <span className="tj-muted">{t.count} trade{t.count===1?"":"s"}</span>
+                <span className="tj-muted">{fmtPct(t.winRate)} win</span>
+                <span className={`num ${t.net>=0?"profit":"loss"}`}>{fmtMoney(t.net)}</span>
+                <button className="tj-icon-btn" onClick={() => onDeleteTag(t.id)} aria-label="Delete tag">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="tj-panel">
+        <h3>Trade checklist</h3>
+        <p className="tj-muted">The criteria you check for before taking a trade. Shown on every plan you create.</p>
+        <div className="tj-checklist-manager">
+          {(settings.checklist||[]).map((c,i) => <div key={i} className="tj-checklist-row"><span>{c}</span><button className="tj-icon-btn" onClick={() => removeChecklistItem(i)} aria-label="Remove">✕</button></div>)}
+        </div>
+        <div className="tj-tag-add" style={{ marginTop:10 }}>
+          <input className="tj-input" placeholder="New checklist item…" value={checklistDraft} onChange={(e) => setChecklistDraft(e.target.value)} onKeyDown={(e) => { if (e.key==="Enter") addChecklistItem(); }} style={{ flex:1 }} />
+          <button className="tj-btn tj-btn-primary" onClick={addChecklistItem}>Add</button>
+        </div>
+      </div>
+
+      <div className="tj-panel">
+        <h3>Account</h3>
+        <div className="tj-tag-add">
+          <label style={{ display:"flex", flexDirection:"column", gap:5, fontSize:12, color:"var(--text-dim)" }}>Account size ($, optional — used to show risk % in dollars)
+            <input className="tj-input" type="number" step="any" value={accountSize} onChange={(e) => setAccountSize(e.target.value)} onBlur={() => onSaveSettings({ ...settings, accountSize })} style={{ width:200 }} />
+          </label>
+        </div>
+      </div>
+
+      <div className="tj-panel">
+        <h3>Instruments</h3>
+        <p className="tj-muted">Point values are standard-lot approximations. Check your broker's contract specification (MT4/5: Market Watch → Symbol → Specification) and adjust here for accurate P&amp;L.</p>
+        <div className="tj-inst-table">
+          <div className="tj-inst-row tj-inst-head"><span>Symbol</span><span>Category</span><span>Point size</span><span>Point value / lot</span><span></span></div>
+          {instruments.map((inst) => <InstrumentRow key={inst.symbol} inst={inst} isDefault={DEFAULT_INSTRUMENTS.some((d) => d.symbol===inst.symbol)} onSave={onSaveInstrument} onReset={onResetInstrument} onDelete={onDeleteInstrument} />)}
+        </div>
+        {!addingInstrument ? <button className="tj-btn tj-btn-ghost" style={{ marginTop:12 }} onClick={() => setAddingInstrument(true)}>+ Add instrument</button> : (
+          <div className="tj-inst-add">
+            <input className="tj-input" placeholder="Symbol e.g. USDZAR" value={newInst.symbol} onChange={(e) => setNewInst((f) => ({ ...f, symbol:e.target.value.toUpperCase() }))} />
+            <select className="tj-input" value={newInst.category} onChange={(e) => setNewInst((f) => ({ ...f, category:e.target.value }))}>{CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+            <input className="tj-input" type="number" step="any" placeholder="Point size" value={newInst.pointSize} onChange={(e) => setNewInst((f) => ({ ...f, pointSize:e.target.value }))} />
+            <input className="tj-input" type="number" step="any" placeholder="Point value/lot" value={newInst.pointValue} onChange={(e) => setNewInst((f) => ({ ...f, pointValue:e.target.value }))} />
+            <button className="tj-btn tj-btn-primary" onClick={() => { if (!newInst.symbol.trim()) return; onSaveInstrument(newInst.symbol.trim(), { id:newInst.symbol.trim(), symbol:newInst.symbol.trim(), category:newInst.category, pointSize:parseFloat(newInst.pointSize)||1, pointValue:parseFloat(newInst.pointValue)||1 }); setNewInst({ symbol:"", category:"Forex", pointSize:"0.0001", pointValue:"10" }); setAddingInstrument(false); }}>Add</button>
+            <button className="tj-btn tj-btn-ghost" onClick={() => setAddingInstrument(false)}>Cancel</button>
+          </div>
+        )}
+      </div>
+
+      <div className="tj-panel">
+        <h3>Your data</h3>
+        <p className="tj-muted">Everything saves automatically to this browser's local storage. It stays on this device — it won't follow you to another browser or computer unless you back it up.</p>
+        <div className="tj-data-actions">
+          <button className="tj-btn tj-btn-primary" onClick={onExportBackup}>Save full backup (.json)</button>
+          <label className="tj-btn tj-btn-ghost" style={{ cursor:"pointer" }}>Load backup
+            <input ref={backupInputRef} type="file" accept=".json" style={{ display:"none" }} onChange={(e) => { if (e.target.files[0]) onImportBackup(e.target.files[0]); e.target.value=""; }} />
+          </label>
+          <button className="tj-btn tj-btn-ghost" onClick={onExport} disabled={tradeCount===0}>Export trades (CSV)</button>
+          <button className="tj-btn tj-btn-ghost" onClick={onTemplate}>Download CSV template</button>
+          <button className="tj-btn tj-btn-ghost" onClick={onImport}>Import CSV</button>
+        </div>
+        {restoreMsg && <p className="tj-import-msg">{restoreMsg}</p>}
+        <p className="tj-muted" style={{ marginTop:4 }}>Note: the full backup includes trades, plans, journal entries, tags and instruments — but not photo/document attachments, which stay in this browser only.</p>
+        <div className="tj-danger-zone">
+          {!confirmReset ? <button className="tj-btn tj-btn-danger" onClick={() => setConfirmReset(true)} disabled={tradeCount===0}>Reset all data</button> : (
+            <div className="tj-confirm-reset"><span>Delete all trades, plans, journal entries, tags and attachments? This can't be undone.</span><button className="tj-btn tj-btn-danger" onClick={onReset}>Yes, delete everything</button><button className="tj-btn tj-btn-ghost" onClick={() => setConfirmReset(false)}>Cancel</button></div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InstrumentRow({ inst, isDefault, onSave, onReset, onDelete }) {
+  const [ps, setPs] = useState(String(inst.pointSize)); const [pv, setPv] = useState(String(inst.pointValue));
+  useEffect(() => { setPs(String(inst.pointSize)); setPv(String(inst.pointValue)); }, [inst.pointSize, inst.pointValue]);
+  const overridden = isDefault && DEFAULT_INSTRUMENTS.find((d) => d.symbol===inst.symbol)?.pointValue !== inst.pointValue;
+  function commit() { const nps=parseFloat(ps), npv=parseFloat(pv); if (isNaN(nps)||isNaN(npv)) return; if (nps===inst.pointSize && npv===inst.pointValue) return; onSave(inst.symbol, { ...inst, id: inst.symbol, pointSize:nps, pointValue:npv }); }
+  return (
+    <div className="tj-inst-row">
+      <span className="tj-symbol">{inst.symbol}{inst.label ? <span className="tj-muted"> · {inst.label}</span> : ""}</span>
+      <span className="tj-muted">{inst.category}</span>
+      <input className="tj-input tj-inst-input" type="number" step="any" value={ps} onChange={(e) => setPs(e.target.value)} onBlur={commit} />
+      <input className="tj-input tj-inst-input" type="number" step="any" value={pv} onChange={(e) => setPv(e.target.value)} onBlur={commit} />
+      <span className="tj-inst-actions">{overridden && <button className="tj-link" onClick={() => onReset(inst.symbol)}>Reset</button>}{!isDefault && <button className="tj-icon-btn" onClick={() => onDelete(inst.symbol)} aria-label="Delete">✕</button>}</span>
+    </div>
+  );
+}
+
+/* ================= TRADE MODAL ================= */
+function TradeModal({ trade, prefill, tags, instruments, onClose, onSave }) {
+  const isEdit = !!trade?.id;
+  const base = trade || prefill;
+  const initialSymbol = base?.symbol || "";
+  const initialInst = instruments.find((i) => i.symbol===initialSymbol);
+  const [form, setForm] = useState(() => ({
+    date: base?.date || todayStr(), symbol: initialSymbol, category: base?.category || initialInst?.category || "Forex",
+    direction: base?.direction || "long", entry: base?.entry || "", exit: base?.exit || "", lots: base?.lots || "1",
+    pointSize: base?.pointSize ?? initialInst?.pointSize ?? "", pointValue: base?.pointValue ?? initialInst?.pointValue ?? "",
+    fees: base?.fees || "", risk: base?.risk || "", pnl: base?.pnl || "", tag: base?.tag || "", session: base?.session || "",
+    notes: base?.notes || "", planId: base?.planId || null,
+  }));
+  const [isCustomSymbol, setIsCustomSymbol] = useState(!initialInst && !!initialSymbol);
+  const [autoCalc, setAutoCalc] = useState(!isEdit);
+  const [showSpecs, setShowSpecs] = useState(false);
+  const [error, setError] = useState("");
+
+  function set(k,v) { setForm((f) => ({ ...f, [k]:v })); }
+  function selectSymbol(sym) {
+    if (sym==="__custom__") { setIsCustomSymbol(true); set("symbol",""); return; }
+    setIsCustomSymbol(false);
+    const inst = instruments.find((i) => i.symbol===sym);
+    setForm((f) => ({ ...f, symbol:sym, category: inst?.category||f.category, pointSize: inst?.pointSize ?? f.pointSize, pointValue: inst?.pointValue ?? f.pointValue }));
+  }
+  const calc = calcPnl({ entry:form.entry, exit:form.exit, lots:form.lots, direction:form.direction, fees:form.fees, pointSize:form.pointSize, pointValue:form.pointValue });
+  const byCategory = CATEGORIES.map((cat) => ({ cat, list: instruments.filter((i) => i.category===cat) }));
+
+  function handleSave() {
+    if (!form.date || !form.symbol.trim()) { setError("Date and symbol are required."); return; }
+    if (isCustomSymbol && (!form.pointSize || !form.pointValue)) { setError("Enter a point size and point value for this custom instrument."); return; }
+    const finalPnl = autoCalc ? (calc?calc.pnl:0) : (isNaN(parseFloat(form.pnl))?0:parseFloat(form.pnl));
+    onSave({ ...form, id: trade?.id, symbol: form.symbol.trim().toUpperCase(), pnl: finalPnl, pointSize: parseFloat(form.pointSize)||1, pointValue: parseFloat(form.pointValue)||1 });
+  }
+
+  return (
+    <div className="tj-overlay" onClick={onClose}>
+      <div className="tj-modal" onClick={(e) => e.stopPropagation()}>
+        <h2>{isEdit?"Edit trade":"Add trade"}</h2>
+        {prefill && <p className="tj-muted" style={{ marginTop:-10, marginBottom:14 }}>Logging from your plan — adjust anything before saving.</p>}
+        <div className="tj-form-grid">
+          <label>Date<input className="tj-input" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} /></label>
+          <label>Instrument
+            {isCustomSymbol ? (
+              <div className="tj-custom-symbol"><input className="tj-input" placeholder="Symbol e.g. USDZAR" value={form.symbol} onChange={(e) => set("symbol", e.target.value.toUpperCase())} /><button type="button" className="tj-link" onClick={() => { setIsCustomSymbol(false); set("symbol",""); }}>Choose from list</button></div>
+            ) : (
+              <select className="tj-input" value={form.symbol} onChange={(e) => selectSymbol(e.target.value)}>
+                <option value="">Select…</option>
+                {byCategory.map(({cat,list}) => list.length>0 && <optgroup key={cat} label={cat}>{list.map((i) => <option key={i.symbol} value={i.symbol}>{i.symbol}{i.label?` — ${i.label}`:""}</option>)}</optgroup>)}
+                <option value="__custom__">＋ Custom instrument…</option>
+              </select>
+            )}
+          </label>
+          <label>Direction<select className="tj-input" value={form.direction} onChange={(e) => set("direction", e.target.value)}><option value="long">Long</option><option value="short">Short</option></select></label>
+          <label>Session<select className="tj-input" value={form.session} onChange={(e) => set("session", e.target.value)}><option value="">—</option>{SESSIONS.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+          <label>Entry price<input className="tj-input" type="number" step="any" value={form.entry} onChange={(e) => set("entry", e.target.value)} /></label>
+          <label>Exit price<input className="tj-input" type="number" step="any" value={form.exit} onChange={(e) => set("exit", e.target.value)} /></label>
+          <label>Lots<input className="tj-input" type="number" step="any" value={form.lots} onChange={(e) => set("lots", e.target.value)} /></label>
+          <label>Fees<input className="tj-input" type="number" step="any" value={form.fees} onChange={(e) => set("fees", e.target.value)} /></label>
+          <label>Risk amount ($, optional)<input className="tj-input" type="number" step="any" value={form.risk} onChange={(e) => set("risk", e.target.value)} /></label>
+          <label className="tj-tag-select">Tag<select className="tj-input" value={form.tag} onChange={(e) => set("tag", e.target.value)}><option value="">No tag</option>{tags.map((t) => <option key={t.id} value={t.name}>{t.icon?t.icon+" ":""}{t.name}</option>)}</select></label>
+        </div>
+        {!isCustomSymbol && form.symbol && (
+          <div className="tj-specs-line"><span className="tj-muted num">Point size {form.pointSize} · Point value ${form.pointValue}/lot</span><button type="button" className="tj-link" onClick={() => setShowSpecs((s) => !s)}>{showSpecs?"Hide":"Adjust for this trade"}</button></div>
+        )}
+        {(isCustomSymbol || showSpecs) && (
+          <div className="tj-specs-edit"><label>Point size<input className="tj-input" type="number" step="any" value={form.pointSize} onChange={(e) => set("pointSize", e.target.value)} /></label><label>Point value / lot ($)<input className="tj-input" type="number" step="any" value={form.pointValue} onChange={(e) => set("pointValue", e.target.value)} /></label></div>
+        )}
+        <div className="tj-pnl-row">
+          <label className="tj-checkbox"><input type="checkbox" checked={autoCalc} onChange={(e) => setAutoCalc(e.target.checked)} />Calculate P&amp;L automatically</label>
+          {autoCalc ? <span className={`num tj-pnl-preview ${calc?(calc.pnl>=0?"profit":"loss"):""}`}>{calc?`${calc.points>=0?"+":""}${calc.points.toFixed(1)} pts × $${parseFloat(form.pointValue).toFixed(2)} × ${form.lots} lot = ${fmtMoney(calc.pnl)}`:"Enter entry, exit, lots & point specs"}</span> : <input className="tj-input tj-pnl-input" type="number" step="any" placeholder="P&L ($)" value={form.pnl} onChange={(e) => set("pnl", e.target.value)} />}
+        </div>
+        <label className="tj-notes-label">Notes<textarea className="tj-input tj-textarea" rows={3} placeholder="Setup, what went right or wrong…" value={form.notes} onChange={(e) => set("notes", e.target.value)} /></label>
+        {error && <p className="tj-error">{error}</p>}
+        <div className="tj-modal-footer"><button className="tj-btn tj-btn-ghost" onClick={onClose}>Cancel</button><button className="tj-btn tj-btn-primary" onClick={handleSave}>{isEdit?"Save changes":"Add trade"}</button></div>
+      </div>
+    </div>
+  );
+}
+
+/* ================= PLAN MODAL ================= */
+function PlanModal({ plan, tags, instruments, settings, allAttachments, onAddAttachment, onRemoveAttachment, onClose, onSave }) {
+  const planId = useRef(plan?.id || uid()).current;
+  const [form, setForm] = useState(() => plan || {
+    date: todayStr(), symbol:"", direction:"Watching", session:"", setupType:"",
+    entryZone:"", stopLoss:"", takeProfit:"", riskPercent:"", thesis:"", status:"Watching",
+    checklist: (settings.checklist||[]).map((c) => ({ criterion:c, status:null })),
+  });
+  const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const isNew = !plan;
+  const planAttachments = allAttachments.filter((a) => a.planId===planId);
+  const fileRef = useRef(null);
+
+  function set(k,v) { setForm((f) => ({ ...f, [k]:v })); }
+  function cycleCheck(i) {
+    setForm((f) => {
+      const next = [...f.checklist];
+      const cur = next[i].status;
+      const nextStatus = cur===null ? "pass" : cur==="pass" ? "fail" : null;
+      next[i] = { ...next[i], status: nextStatus };
+      return { ...f, checklist: next };
+    });
+  }
+  async function handleFiles(fileList) {
+    setUploading(true);
+    for (const file of Array.from(fileList)) await onAddAttachment(planId, file);
+    setUploading(false);
+  }
+  function handleSave() {
+    if (!form.date || !form.symbol.trim()) { setError("Date and symbol are required."); return; }
+    onSave({ ...form, id: planId, symbol: form.symbol.trim().toUpperCase(), attachmentIds: planAttachments.map((a) => a.id) });
+  }
+  function handleCancel() {
+    if (isNew) { planAttachments.forEach((a) => onRemoveAttachment(a.id)); }
+    onClose();
+  }
+  const byCategory = CATEGORIES.map((cat) => ({ cat, list: instruments.filter((i) => i.category===cat) }));
+
+  return (
+    <div className="tj-overlay" onClick={handleCancel}>
+      <div className="tj-modal" onClick={(e) => e.stopPropagation()}>
+        <h2>{plan?"Edit plan":"Plan a trade"}</h2>
+        <div className="tj-form-grid">
+          <label>Date<input className="tj-input" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} /></label>
+          <label>Instrument<select className="tj-input" value={form.symbol} onChange={(e) => set("symbol", e.target.value)}>
+            <option value="">Select…</option>
+            {byCategory.map(({cat,list}) => list.length>0 && <optgroup key={cat} label={cat}>{list.map((i) => <option key={i.symbol} value={i.symbol}>{i.symbol}{i.label?` — ${i.label}`:""}</option>)}</optgroup>)}
+          </select></label>
+          <label>Bias<select className="tj-input" value={form.direction} onChange={(e) => set("direction", e.target.value)}><option value="Watching">Watching (neutral)</option><option value="Long">Long</option><option value="Short">Short</option></select></label>
+          <label>Session<select className="tj-input" value={form.session} onChange={(e) => set("session", e.target.value)}><option value="">—</option>{SESSIONS.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+          <label>Setup / tag<select className="tj-input" value={form.setupType} onChange={(e) => set("setupType", e.target.value)}><option value="">No tag</option>{tags.map((t) => <option key={t.id} value={t.name}>{t.icon?t.icon+" ":""}{t.name}</option>)}</select></label>
+          <label>Status<select className="tj-input" value={form.status} onChange={(e) => set("status", e.target.value)}>{PLAN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+          <label>Entry zone / price<input className="tj-input" placeholder="e.g. 2415.00 or 2410–2418" value={form.entryZone} onChange={(e) => set("entryZone", e.target.value)} /></label>
+          <label>Stop loss<input className="tj-input" type="number" step="any" value={form.stopLoss} onChange={(e) => set("stopLoss", e.target.value)} /></label>
+          <label>Take profit<input className="tj-input" type="number" step="any" value={form.takeProfit} onChange={(e) => set("takeProfit", e.target.value)} /></label>
+          <label>Risk (% of account)<input className="tj-input" type="number" step="any" value={form.riskPercent} onChange={(e) => set("riskPercent", e.target.value)} /></label>
+        </div>
+
+        <label className="tj-notes-label">Thesis — why this trade<textarea className="tj-input tj-textarea" rows={3} placeholder="What's the setup? What confirms it? What invalidates it?" value={form.thesis} onChange={(e) => set("thesis", e.target.value)} /></label>
+
+        <div className="tj-notes-label">
+          <span>Checklist</span>
+          <div className="tj-checklist-edit">
+            {(form.checklist||[]).length===0 && <span className="tj-muted">Add checklist items in Setup to use them here.</span>}
+            {(form.checklist||[]).map((c,i) => (
+              <div className="tj-checklist-row" key={i}>
+                <span>{c.criterion}</span>
+                <div className="tj-check-toggle">
+                  <button type="button" className={`tj-check-btn pass ${c.status==="pass"?"active":""}`} onClick={() => cycleCheck(i)}>✓</button>
+                  <button type="button" className={`tj-check-btn fail ${c.status==="fail"?"active":""}`} onClick={() => cycleCheck(i)}>✗</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="tj-notes-label">
+          <span>Trade idea — photo or document</span>
+          <div className="tj-attach-list">
+            {planAttachments.map((a) => <AttachmentThumb key={a.id} att={a} onRemove={onRemoveAttachment} />)}
+            <button type="button" className="tj-btn tj-btn-ghost" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading?"Uploading…":"+ Add file"}</button>
+            <input ref={fileRef} type="file" accept="image/*,.pdf,.doc,.docx" multiple style={{ display:"none" }} onChange={(e) => { if (e.target.files.length) handleFiles(e.target.files); e.target.value=""; }} />
+          </div>
+        </div>
+
+        {error && <p className="tj-error">{error}</p>}
+        <div className="tj-modal-footer"><button className="tj-btn tj-btn-ghost" onClick={handleCancel}>Cancel</button><button className="tj-btn tj-btn-primary" onClick={handleSave}>{plan?"Save changes":"Add to plan"}</button></div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<TradingJournal />);
+</script>
+</body>
+</html>
