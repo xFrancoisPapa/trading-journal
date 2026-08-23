@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Admin — Trading Journal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+html,body{margin:0;padding:0;}
+:root{
+  --bg:#171310; --surface:#1F1A15; --surface-2:#2A241D; --border:#3A322A;
+  --text:#F2E9DC; --text-dim:#A89A85; --text-faint:#6E6255;
+  --gold:#C9A227; --profit:#4FA88A; --profit-bg:rgba(79,168,138,0.14);
+  --loss:#C1584A; --loss-bg:rgba(193,88,74,0.14);
+}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;}
+*{box-sizing:border-box;}
+.wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.wrap-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;max-width:380px;width:100%;text-align:center;}
+.wrap-box h1{font-family:'Fraunces',serif;font-size:20px;margin:0 0 16px;}
+.input{background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:9px 12px;font-size:13px;width:100%;margin-bottom:10px;}
+.btn{font-size:13px;font-weight:500;padding:9px 16px;border-radius:7px;border:1px solid var(--border);cursor:pointer;background:var(--surface-2);color:var(--text);}
+.btn:hover{border-color:var(--gold);}
+.btn-primary{background:var(--gold);border-color:var(--gold);color:#1A1611;font-weight:600;width:100%;}
+.err{color:var(--loss);font-size:12px;}
+.admin-app{max-width:1100px;margin:0 auto;padding:24px;}
+.admin-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+.admin-header h1{font-family:'Fraunces',serif;font-size:20px;margin:0;}
+.admin-header span{color:var(--text-faint);font-size:12px;}
+.search{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:9px 12px;font-size:13px;width:100%;max-width:320px;margin-bottom:14px;}
+.msg{background:rgba(201,162,39,.15);border:1px solid var(--gold);color:var(--gold);padding:8px 12px;border-radius:7px;font-size:13px;margin-bottom:14px;}
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:820px;}
+th{text-align:left;padding:10px 12px;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);white-space:nowrap;}
+td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-size:12.5px;}
+tr:last-child td{border-bottom:none;}
+.pill{font-family:'Inter',sans-serif;font-size:10px;text-transform:uppercase;padding:3px 9px;border-radius:20px;letter-spacing:.03em;}
+.pill.active{background:var(--profit-bg);color:var(--profit);}
+.pill.trial{background:rgba(110,155,193,.15);color:#6E9BC1;}
+.pill.expired{background:var(--loss-bg);color:var(--loss);}
+.row-actions{display:flex;gap:6px;align-items:center;}
+.row-actions button{font-family:'Inter',sans-serif;font-size:11px;padding:6px 10px;}
+.row-actions select{font-family:'Inter',sans-serif;font-size:11px;padding:6px 8px;background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:6px;}
+.empty{text-align:center;padding:50px 20px;color:var(--text-dim);font-size:13px;}
+.stat-row{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
+.stat-box{display:flex;flex-direction:column;gap:2px;}
+.stat-box .num{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500;}
+.stat-box .label{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;}
+</style>
+</head>
+<body>
+<div id="root"><div class="wrap"><p style="color:#A89A85">Loading admin panel…</p></div></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+const SUPABASE_URL = "https://wxqbvgzeorgcjuamhjlh.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4cWJ2Z3plb3JnY2p1YW1oamxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4ODg1MDIsImV4cCI6MjEwMjQ2NDUwMn0.qlKP21kLeoCzgf-KnxHhnQpeofwGEoKrBw8WleTmYQo";
+const PLANS = [
+  { id:"1month", label:"1 Month", price:5000, months:1 },
+  { id:"3months", label:"3 Months", price:13000, months:3 },
+  { id:"1year", label:"1 Year", price:45000, months:12 },
+];
+function addMonths(date, months) { const d = new Date(date); d.setMonth(d.getMonth()+months); return d; }
+
+function fmtDateTime(d) {
+  if (!d) return "—";
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "—";
+  return dt.toLocaleDateString(undefined, { month:"short", day:"numeric", year:"numeric" }) + " " + dt.toLocaleTimeString(undefined, { hour:"2-digit", minute:"2-digit" });
+}
+function Wrap({ children }) { return <div className="wrap"><div className="wrap-box">{children}</div></div>; }
+
+function AdminApp() {
+  const supabase = useMemo(() => window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY), []);
+  const [session, setSession] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(null);
+  const [emailInput, setEmailInput] = useState("");
+  const [magicSent, setMagicSent] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [profiles, setProfiles] = useState([]);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [search, setSearch] = useState("");
+  const [actionMsg, setActionMsg] = useState("");
+  const [selectedPlan, setSelectedPlan] = useState({});
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthChecked(true); });
+    const { data: listener } = supabase.auth.onAuthStateChange((_e, sess) => setSession(sess));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!session) { setIsAdmin(null); return; }
+    (async () => {
+      const { data } = await supabase.from("admins").select("user_id").eq("user_id", session.user.id).maybeSingle();
+      setIsAdmin(!!data);
+    })();
+  }, [session]);
+
+  useEffect(() => { if (isAdmin) loadProfiles(); }, [isAdmin]);
+
+  async function loadProfiles() {
+    setLoadingProfiles(true);
+    const { data, error } = await supabase.from("profiles").select("*").order("created_at", { ascending:false });
+    if (!error) setProfiles(data || []);
+    setLoadingProfiles(false);
+  }
+  async function sendMagicLink() {
+    setAuthError("");
+    if (!emailInput.trim()) { setAuthError("Enter your email."); return; }
+    const { error } = await supabase.auth.signInWithOtp({ email: emailInput.trim(), options: { emailRedirectTo: window.location.href.split("?")[0] } });
+    if (error) setAuthError(error.message); else setMagicSent(true);
+  }
+  async function signOut() { await supabase.auth.signOut(); setSession(null); }
+
+  async function activateStudent(profile, planId) {
+    const plan = PLANS.find((p) => p.id===planId);
+    if (!plan) return;
+    if (!window.confirm(`Activate/renew ${profile.email} on the ${plan.label} plan (Tsh ${plan.price.toLocaleString()})?`)) return;
+    const now = new Date();
+    const base = (profile.subscription_expires_at && new Date(profile.subscription_expires_at) > now) ? new Date(profile.subscription_expires_at) : now;
+    const newExpiry = addMonths(base, plan.months);
+    const { error } = await supabase.from("profiles").update({ subscription_status:"active", subscription_expires_at: newExpiry.toISOString(), plan: plan.id }).eq("id", profile.id);
+    if (error) { setActionMsg("Error: " + error.message); return; }
+    setActionMsg(`${profile.email} activated on ${plan.label} until ${newExpiry.toLocaleDateString()}.`);
+    loadProfiles();
+  }
+  async function revertToTrial(profile) {
+    if (!window.confirm(`Set ${profile.email} back to trial status?`)) return;
+    const { error } = await supabase.from("profiles").update({ subscription_status:"trial" }).eq("id", profile.id);
+    if (error) { setActionMsg("Error: " + error.message); return; }
+    setActionMsg(`${profile.email} reverted to trial.`);
+    loadProfiles();
+  }
+
+  const filtered = profiles.filter((p) => !search || (p.email||"").toLowerCase().includes(search.toLowerCase()));
+  const isPaying = (p) => p.subscription_status==="active" && p.subscription_expires_at && new Date(p.subscription_expires_at) > new Date();
+  const paidCount = profiles.filter(isPaying).length;
+  const trialCount = profiles.filter((p) => !isPaying(p) && new Date(p.trial_end) > new Date()).length;
+  const byPlan = PLANS.map((pl) => ({ ...pl, count: profiles.filter((p) => isPaying(p) && p.plan===pl.id).length }));
+
+  if (!authChecked) return <Wrap><p>Loading…</p></Wrap>;
+  if (!session) {
+    return (
+      <Wrap>
+        <h1>Admin — Trading Journal</h1>
+        {magicSent ? (
+          <p style={{ fontSize:13 }}>Check <strong>{emailInput}</strong> for a sign-in link.</p>
+        ) : (
+          <React.Fragment>
+            <input className="input" type="email" placeholder="your admin email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} onKeyDown={(e) => { if (e.key==="Enter") sendMagicLink(); }} />
+            <button className="btn btn-primary" onClick={sendMagicLink}>Send sign-in link</button>
+            {authError && <p className="err">{authError}</p>}
+          </React.Fragment>
+        )}
+      </Wrap>
+    );
+  }
+  if (isAdmin === null) return <Wrap><p>Checking access…</p></Wrap>;
+  if (isAdmin === false) {
+    return (
+      <Wrap>
+        <p>This account ({session.user.email}) isn't set up as an admin.</p>
+        <button className="btn" onClick={signOut}>Sign out</button>
+      </Wrap>
+    );
+  }
+
+  return (
+    <div className="admin-app">
+      <div className="admin-header">
+        <div><h1>Student Access</h1><span>Signed in as {session.user.email}</span></div>
+        <button className="btn" onClick={signOut}>Sign out</button>
+      </div>
+      <input className="search" placeholder="Search by email…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      {actionMsg && <div className="msg">{actionMsg}</div>}
+      <div className="stat-row">
+        <div className="stat-box"><span className="num">{profiles.length}</span><span className="label">Total students</span></div>
+        <div className="stat-box"><span className="num" style={{ color:"var(--profit)" }}>{paidCount}</span><span className="label">Paying</span></div>
+        <div className="stat-box"><span className="num">{trialCount}</span><span className="label">On trial</span></div>
+        {byPlan.map((pl) => <div className="stat-box" key={pl.id}><span className="num">{pl.count}</span><span className="label">{pl.label}</span></div>)}
+      </div>
+      {loadingProfiles ? <p style={{ color:"var(--text-dim)" }}>Loading students…</p> : filtered.length===0 ? (
+        <div className="empty">No students found.</div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Email</th><th>Status</th><th>Plan</th><th>Trial ends</th><th>Subscription expires</th><th>Referred by</th><th>Signed up</th><th></th></tr></thead>
+            <tbody>
+              {filtered.map((p) => {
+                const activeNow = isPaying(p);
+                const trialLive = !activeNow && new Date(p.trial_end) > new Date();
+                const status = activeNow ? "active" : trialLive ? "trial" : "expired";
+                const currentPlanLabel = PLANS.find((pl) => pl.id===p.plan)?.label;
+                return (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily:"'Inter',sans-serif" }}>{p.email}</td>
+                    <td><span className={`pill ${status}`}>{status}</span></td>
+                    <td>{currentPlanLabel || "—"}</td>
+                    <td>{fmtDateTime(p.trial_end)}</td>
+                    <td>{fmtDateTime(p.subscription_expires_at)}</td>
+                    <td>{p.referred_by || "—"}</td>
+                    <td>{fmtDateTime(p.created_at)}</td>
+                    <td className="row-actions">
+                      <select value={selectedPlan[p.id]||"1month"} onChange={(e) => setSelectedPlan((s) => ({ ...s, [p.id]:e.target.value }))}>
+                        {PLANS.map((pl) => <option key={pl.id} value={pl.id}>{pl.label} — Tsh {pl.price.toLocaleString()}</option>)}
+                      </select>
+                      <button className="btn" onClick={() => activateStudent(p, selectedPlan[p.id]||"1month")}>Activate</button>
+                      {activeNow && <button className="btn" onClick={() => revertToTrial(p)}>Revert</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<AdminApp />);
+</script>
+</body>
+</html>
