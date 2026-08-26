@@ -5899,7 +5899,85 @@ function RootApp() {
     onSignOut: signOut
   }));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(RootApp, null));
+
+// Top-level crash safety net: without this, any uncaught render error anywhere in the
+// app unmounts the whole tree to a blank white screen with zero explanation for the
+// student and zero record for us. This catches it, shows a reload prompt instead, and
+// stashes the error on window so it can be inspected via the browser console.
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      hasError: false
+    };
+  }
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true
+    };
+  }
+  componentDidCatch(error, info) {
+    console.error("Trading Journal crashed:", error, info);
+    try {
+      window.__tjLastCrash = {
+        message: error?.message,
+        stack: error?.stack,
+        componentStack: info?.componentStack,
+        time: new Date().toISOString()
+      };
+    } catch (e) {}
+  }
+  render() {
+    if (this.state.hasError) {
+      return /*#__PURE__*/React.createElement("div", {
+        style: {
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--bg,#171310)",
+          color: "var(--text,#E8DFD3)",
+          fontFamily: "sans-serif",
+          padding: 24,
+          textAlign: "center"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          maxWidth: 420
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 32,
+          marginBottom: 12
+        }
+      }, "⚠️"), /*#__PURE__*/React.createElement("h2", {
+        style: {
+          marginBottom: 8
+        }
+      }, "Something went wrong"), /*#__PURE__*/React.createElement("p", {
+        style: {
+          color: "var(--text-faint,#A89A85)",
+          fontSize: 14,
+          marginBottom: 20
+        }
+      }, "The app hit an unexpected error and couldn't continue. Your data is safe in your account — reloading almost always fixes this."), /*#__PURE__*/React.createElement("button", {
+        onClick: () => window.location.reload(),
+        style: {
+          background: "var(--gold,#C9A227)",
+          color: "#171310",
+          border: "none",
+          borderRadius: 8,
+          padding: "10px 20px",
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: "pointer"
+        }
+      }, "Reload")));
+    }
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(ErrorBoundary, null, /*#__PURE__*/React.createElement(RootApp, null)));
 </script>
 </body>
 </html>
