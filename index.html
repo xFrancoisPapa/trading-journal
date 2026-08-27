@@ -250,7 +250,12 @@ html,body{margin:0;padding:0;background:var(--bg);transition:background .2s;}
 .tj-notif-btn{position:relative;}
 .tj-notif-badge{position:absolute;top:0;right:0;background:var(--loss,#C1584A);color:#fff;font-size:9px;font-weight:700;min-width:15px;height:15px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1;}
 .tj-notif-panel{position:absolute;top:calc(100% + 8px);left:0;width:320px;max-height:420px;overflow-y:auto;background:var(--surface,#211C17);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:60;}
-.tj-notif-panel-head{padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);}
+.tj-notif-panel-head{padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.tj-notif-clear-btn{background:none;border:none;color:var(--text-faint);font-size:11px;font-weight:400;cursor:pointer;text-decoration:underline;}
+.tj-notif-clear-btn:hover{color:var(--text);}
+.tj-notif-item-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.tj-notif-item-clear{background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:11px;padding:0 2px;flex-shrink:0;}
+.tj-notif-item-clear:hover{color:var(--text);}
 .tj-notif-empty{padding:20px 14px;font-size:13px;text-align:center;}
 .tj-notif-list{display:flex;flex-direction:column;}
 .tj-notif-item{padding:10px 14px;border-bottom:1px solid var(--border);}
@@ -746,7 +751,31 @@ const fmtDateTimeShort = iso => {
     minute: "2-digit"
   });
 };
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Local-timezone-safe date formatting. Never use .toISOString() for calendar dates —
+// it's always UTC, which silently breaks "today" for anyone not at UTC+0 (e.g. at
+// 00:20 in Tanzania/UTC+3, toISOString() still reports the previous day for another
+// 2h40m). getZonedDateStr renders a date as YYYY-MM-DD in a specific IANA timezone;
+// toLocalDateStr does the same using the browser's own local time as a fallback.
+function getZonedDateStr(date, timeZone) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(date);
+  } catch (e) {
+    return toLocalDateStr(date);
+  }
+}
+function toLocalDateStr(date) {
+  const y = date.getFullYear(),
+    m = String(date.getMonth() + 1).padStart(2, "0"),
+    d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+const todayStr = tz => tz ? getZonedDateStr(new Date(), tz) : toLocalDateStr(new Date());
+const COMMON_TIMEZONES = ["Africa/Dar_es_Salaam", "Africa/Nairobi", "Africa/Kampala", "Africa/Kigali", "Africa/Addis_Ababa", "Africa/Lagos", "Africa/Cairo", "Africa/Johannesburg", "Africa/Accra", "Africa/Casablanca", "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Madrid", "Europe/Moscow", "Europe/Istanbul", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Sao_Paulo", "America/Mexico_City", "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Dhaka", "Asia/Bangkok", "Asia/Singapore", "Asia/Hong_Kong", "Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul", "Australia/Sydney", "Pacific/Auckland", "UTC"];
 function downloadBlob(content, filename, type) {
   const blob = content instanceof Blob ? content : new Blob([content], {
     type
@@ -930,7 +959,9 @@ async function sbLoadSettings(supabase, userId) {
     planPageVisible: {
       watchlist: true,
       history: true
-    }
+    },
+    timezone: typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC",
+    language: "en"
   };
 }
 async function sbSaveSettings(supabase, userId, settingsObj) {
@@ -1382,7 +1413,9 @@ function TradingJournal({
     planPageVisible: {
       watchlist: true,
       history: true
-    }
+    },
+    timezone: typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC",
+    language: "en"
   });
   const [view, setView] = useState("dashboard");
   const [saveFlash, setSaveFlash] = useState(false);
@@ -1461,6 +1494,8 @@ function TradingJournal({
             watchlist: true,
             history: true
           },
+          timezone: typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC",
+          language: "en",
           ...se
         });
         if (t.length === 0) {
@@ -1513,6 +1548,7 @@ function TradingJournal({
   const visiblePlans = useMemo(() => plans.filter(p => p.account_id === activeAccountId), [plans, activeAccountId]);
   const visibleJournal = useMemo(() => journal.filter(j => j.account_id === activeAccountId), [journal, activeAccountId]);
   const activeAccount = accounts.find(a => a.id === activeAccountId);
+  const todayInTz = todayStr(settings.timezone);
   async function importLegacyData() {
     if (!legacyOffer) return;
     setLegacyImporting(true);
@@ -1543,6 +1579,8 @@ function TradingJournal({
           watchlist: true,
           history: true
         },
+        timezone: typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC",
+        language: "en",
         ...lse[0]
       });
     } catch (e) {
@@ -2240,6 +2278,7 @@ function TradingJournal({
     dailyMap: dailyMap,
     trades: visibleTrades,
     journalDates: journalDates,
+    todayStr: todayInTz,
     onNav: dir => {
       let m = calMonth + dir,
         y = calYear;
@@ -2284,7 +2323,8 @@ function TradingJournal({
   }), view === "journal" && /*#__PURE__*/React.createElement(JournalView, {
     journal: visibleJournal,
     trades: visibleTrades,
-    onSaveJournal: upsertJournalForDate
+    onSaveJournal: upsertJournalForDate,
+    todayStr: todayInTz
   }), view === "log" && /*#__PURE__*/React.createElement(TradeLog, {
     trades: filteredTrades,
     allCount: visibleTrades.length,
@@ -2583,6 +2623,7 @@ function CalendarView({
   dailyMap,
   trades,
   journalDates,
+  todayStr: todayOverride,
   onNav,
   onDayClick
 }) {
@@ -2637,7 +2678,7 @@ function CalendarView({
       });
       const pnl = dailyMap[c.date];
       const count = countForDay(c.date);
-      const isToday = c.date === todayStr();
+      const isToday = c.date === (todayOverride || todayStr());
       const hasJournal = journalDates.has(c.date);
       return /*#__PURE__*/React.createElement("button", {
         key: ci,
@@ -3012,11 +3053,12 @@ function PlanView({
 function JournalView({
   journal,
   trades,
-  onSaveJournal
+  onSaveJournal,
+  todayStr: todayOverride
 }) {
-  const [jDate, setJDate] = useState(todayStr());
+  const [jDate, setJDate] = useState(todayOverride || todayStr());
   const [jForm, setJForm] = useState(() => ({
-    date: todayStr(),
+    date: todayOverride || todayStr(),
     rating: 0,
     mood: [],
     marketContext: "",
@@ -3053,7 +3095,7 @@ function JournalView({
     onClick: () => {
       const d = new Date(jDate + "T00:00:00");
       d.setDate(d.getDate() - 1);
-      setJDate(d.toISOString().slice(0, 10));
+      setJDate(toLocalDateStr(d));
     }
   }, "‹"), /*#__PURE__*/React.createElement("h3", null, "Day journal — ", fmtDate(jDate)), /*#__PURE__*/React.createElement("input", {
     className: "tj-input",
@@ -3065,7 +3107,7 @@ function JournalView({
     onClick: () => {
       const d = new Date(jDate + "T00:00:00");
       d.setDate(d.getDate() + 1);
-      setJDate(d.toISOString().slice(0, 10));
+      setJDate(toLocalDateStr(d));
     }
   }, "›")), (() => {
     const dayTrades = trades.filter(t => t.date === jDate);
@@ -3394,7 +3436,53 @@ function SetupView({
       ...settings,
       showPlanVsActualGap: e.target.checked
     })
-  }), "Show the gap between planned and actual entry price / risk % on executed trades")), sv.alerts !== false && /*#__PURE__*/React.createElement("div", {
+  }), "Show the gap between planned and actual entry price / risk % on executed trades")), /*#__PURE__*/React.createElement("div", {
+    className: "tj-panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "Timezone & language"), /*#__PURE__*/React.createElement("p", {
+    className: "tj-muted"
+  }, "Your timezone controls when \"today\" rolls over — for the calendar, journal, and default dates on new trades and plans. Auto-detected from your device; change it if you trade from a different timezone or your device clock is set elsewhere."), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      marginTop: 10
+    }
+  }, "Timezone", /*#__PURE__*/React.createElement("select", {
+    className: "tj-input",
+    value: settings.timezone || "UTC",
+    onChange: e => onSaveSettings({
+      ...settings,
+      timezone: e.target.value
+    })
+  }, COMMON_TIMEZONES.map(tz => /*#__PURE__*/React.createElement("option", {
+    key: tz,
+    value: tz
+  }, tz.replace(/_/g, " "))))), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      marginTop: 12
+    }
+  }, "Language", /*#__PURE__*/React.createElement("select", {
+    className: "tj-input",
+    value: settings.language || "en",
+    onChange: e => onSaveSettings({
+      ...settings,
+      language: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "en"
+  }, "English"), /*#__PURE__*/React.createElement("option", {
+    value: "sw"
+  }, "Kiswahili"), /*#__PURE__*/React.createElement("option", {
+    value: "es"
+  }, "Español"), /*#__PURE__*/React.createElement("option", {
+    value: "fr"
+  }, "Français")), /*#__PURE__*/React.createElement("span", {
+    className: "tj-muted",
+    style: {
+      display: "block",
+      marginTop: 4,
+      fontSize: 11
+    }
+  }, "Translation is in progress — navigation and key screens are translated now, more is on the way."))), sv.alerts !== false && /*#__PURE__*/React.createElement("div", {
     className: "tj-panel"
   }, /*#__PURE__*/React.createElement("h3", null, "Price alerts"), /*#__PURE__*/React.createElement("p", {
     className: "tj-muted"
@@ -4025,7 +4113,7 @@ function TradeModal({
   const initialSymbol = base?.symbol || "";
   const initialInst = instruments.find(i => i.symbol === initialSymbol);
   const [form, setForm] = useState(() => ({
-    date: base?.date || todayStr(),
+    date: base?.date || todayStr(settings.timezone),
     symbol: initialSymbol,
     category: base?.category || initialInst?.category || "Forex",
     direction: base?.direction || "long",
@@ -4041,8 +4129,36 @@ function TradeModal({
     session: base?.session || "",
     notes: base?.notes || "",
     planId: base?.planId || null,
-    account_id: base?.account_id || null
+    account_id: base?.account_id || null,
+    managementLog: base?.managementLog || []
   }));
+  const [logDraft, setLogDraft] = useState({
+    note: "",
+    price: ""
+  });
+  function addLogEntry() {
+    if (!logDraft.note.trim()) return;
+    const entry = {
+      id: uid(),
+      at: new Date().toISOString(),
+      note: logDraft.note.trim(),
+      price: logDraft.price !== "" ? parseFloat(logDraft.price) : null
+    };
+    setForm(f => ({
+      ...f,
+      managementLog: [...(f.managementLog || []), entry]
+    }));
+    setLogDraft({
+      note: "",
+      price: ""
+    });
+  }
+  function removeLogEntry(id) {
+    setForm(f => ({
+      ...f,
+      managementLog: (f.managementLog || []).filter(e => e.id !== id)
+    }));
+  }
   const [isCustomSymbol, setIsCustomSymbol] = useState(!initialInst && !!initialSymbol);
   const [autoCalc, setAutoCalc] = useState(!isEdit);
   const [showSpecs, setShowSpecs] = useState(false);
@@ -4265,6 +4381,76 @@ function TradeModal({
     onChange: e => set("notes", e.target.value)
   })), /*#__PURE__*/React.createElement("div", {
     className: "tj-notes-label"
+  }, /*#__PURE__*/React.createElement("span", null, "Trade management log"), /*#__PURE__*/React.createElement("p", {
+    className: "tj-muted",
+    style: {
+      marginTop: 2,
+      marginBottom: 8,
+      fontSize: 12
+    }
+  }, "A record of what you actually did as the trade played out — moved stop to breakeven, took a partial at 2R, whatever happened. This is your own manual log, not automated."), (form.managementLog || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "tj-mgmt-log-list"
+  }, (form.managementLog || []).slice().sort((a, b) => new Date(a.at) - new Date(b.at)).map(entry => /*#__PURE__*/React.createElement("div", {
+    key: entry.id,
+    className: "tj-mgmt-log-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tj-mgmt-log-text"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tj-mgmt-log-time"
+  }, new Date(entry.at).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  })), " — ", entry.note, entry.price != null && !isNaN(entry.price) && /*#__PURE__*/React.createElement("b", null, " @ ", entry.price)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-icon-btn",
+    onClick: () => removeLogEntry(entry.id),
+    title: "Remove this entry"
+  }, "✕")))), /*#__PURE__*/React.createElement("div", {
+    className: "tj-mgmt-log-add"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "tj-input",
+    placeholder: "e.g. Moved stop to breakeven",
+    value: logDraft.note,
+    onChange: e => setLogDraft(d => ({
+      ...d,
+      note: e.target.value
+    })),
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addLogEntry();
+      }
+    },
+    style: {
+      flex: 1
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "tj-input",
+    type: "number",
+    step: "any",
+    placeholder: "Price (optional)",
+    value: logDraft.price,
+    onChange: e => setLogDraft(d => ({
+      ...d,
+      price: e.target.value
+    })),
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addLogEntry();
+      }
+    },
+    style: {
+      width: 130
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-btn",
+    onClick: addLogEntry
+  }, "Add"))), /*#__PURE__*/React.createElement("div", {
+    className: "tj-notes-label"
   }, /*#__PURE__*/React.createElement("span", null, "Trade screenshot or document"), /*#__PURE__*/React.createElement("div", {
     className: "tj-attach-list"
   }, tradeAttachments.map(a => /*#__PURE__*/React.createElement(AttachmentThumb, {
@@ -4329,7 +4515,7 @@ function PlanModal({
     ...plan,
     setupTags: plan.setupTags || (plan.setupType ? [plan.setupType] : [])
   } : {
-    date: todayStr(),
+    date: todayStr(settings.timezone),
     symbol: "",
     category: "Forex",
     direction: "Watching",
@@ -4863,6 +5049,16 @@ function NotificationBell({
       read: true
     }).in("id", unreadIds);
   }
+  async function clearAll() {
+    if (!items.length) return;
+    const ids = items.map(n => n.id);
+    setItems([]);
+    await supabase.from("notifications").delete().in("id", ids);
+  }
+  async function clearOne(id) {
+    setItems(prev => prev.filter(n => n.id !== id));
+    await supabase.from("notifications").delete().eq("id", id);
+  }
   function toggle() {
     setOpen(o => {
       const next = !o;
@@ -4890,7 +5086,11 @@ function NotificationBell({
     className: "tj-notif-panel"
   }, /*#__PURE__*/React.createElement("div", {
     className: "tj-notif-panel-head"
-  }, "Notifications"), !loaded ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "Notifications"), items.length > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-notif-clear-btn",
+    onClick: clearAll
+  }, "Clear all")), !loaded ? /*#__PURE__*/React.createElement("div", {
     className: "tj-notif-empty tj-muted"
   }, "Loading…") : items.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "tj-notif-empty tj-muted"
@@ -4900,8 +5100,15 @@ function NotificationBell({
     key: n.id,
     className: `tj-notif-item ${n.read ? "" : "unread"}`
   }, /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-item-row"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "tj-notif-title"
-  }, n.title), /*#__PURE__*/React.createElement("div", {
+  }, n.title), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-notif-item-clear",
+    onClick: () => clearOne(n.id),
+    title: "Remove"
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
     className: "tj-notif-body"
   }, n.body), /*#__PURE__*/React.createElement("div", {
     className: "tj-notif-time"
