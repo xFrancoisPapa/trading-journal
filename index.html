@@ -246,6 +246,20 @@ html,body{margin:0;padding:0;background:var(--bg);transition:background .2s;}
 .tj-legs-row{display:flex;align-items:center;gap:8px;font-size:12px;}
 .tj-legs-row input{width:60px;}
 .tj-auto-manage-box{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px;background:var(--surface-2);}
+.tj-notif-wrap{position:relative;}
+.tj-notif-btn{position:relative;}
+.tj-notif-badge{position:absolute;top:0;right:0;background:var(--loss,#C1584A);color:#fff;font-size:9px;font-weight:700;min-width:15px;height:15px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1;}
+.tj-notif-panel{position:absolute;top:calc(100% + 8px);left:0;width:320px;max-height:420px;overflow-y:auto;background:var(--surface,#211C17);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:60;}
+.tj-notif-panel-head{padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);}
+.tj-notif-empty{padding:20px 14px;font-size:13px;text-align:center;}
+.tj-notif-list{display:flex;flex-direction:column;}
+.tj-notif-item{padding:10px 14px;border-bottom:1px solid var(--border);}
+.tj-notif-item:last-child{border-bottom:none;}
+.tj-notif-item.unread{background:rgba(201,162,39,.06);}
+.tj-notif-title{font-size:13px;font-weight:600;margin-bottom:2px;}
+.tj-notif-body{font-size:12px;color:var(--text-faint);line-height:1.4;}
+.tj-notif-time{font-size:11px;color:var(--text-faint);margin-top:4px;}
+@media (max-width:768px){ .tj-notif-panel{position:fixed;top:56px;left:8px;right:8px;width:auto;} }
 .status-watching{background:rgba(110,155,193,.15);color:#6E9BC1;}
 .status-triggered{background:rgba(201,162,39,.18);color:var(--gold);}
 .status-taken{background:var(--profit-bg);color:var(--profit);}
@@ -916,13 +930,6 @@ async function sbLoadSettings(supabase, userId) {
     planPageVisible: {
       watchlist: true,
       history: true
-    },
-    autoManageDefaults: {
-      scaleOutLegs: [{
-        r: 2,
-        percent: 100
-      }],
-      beAtR: 1
     }
   };
 }
@@ -1375,13 +1382,6 @@ function TradingJournal({
     planPageVisible: {
       watchlist: true,
       history: true
-    },
-    autoManageDefaults: {
-      scaleOutLegs: [{
-        r: 2,
-        percent: 100
-      }],
-      beAtR: 1
     }
   });
   const [view, setView] = useState("dashboard");
@@ -1461,13 +1461,6 @@ function TradingJournal({
             watchlist: true,
             history: true
           },
-          autoManageDefaults: {
-            scaleOutLegs: [{
-              r: 2,
-              percent: 100
-            }],
-            beAtR: 1
-          },
           ...se
         });
         if (t.length === 0) {
@@ -1520,8 +1513,6 @@ function TradingJournal({
   const visiblePlans = useMemo(() => plans.filter(p => p.account_id === activeAccountId), [plans, activeAccountId]);
   const visibleJournal = useMemo(() => journal.filter(j => j.account_id === activeAccountId), [journal, activeAccountId]);
   const activeAccount = accounts.find(a => a.id === activeAccountId);
-  const pendingAutoManageInitRef = useRef({}); // planId -> patch to merge once its auto-logged trade saves
-
   async function importLegacyData() {
     if (!legacyOffer) return;
     setLegacyImporting(true);
@@ -1552,13 +1543,6 @@ function TradingJournal({
           watchlist: true,
           history: true
         },
-        autoManageDefaults: {
-          scaleOutLegs: [{
-            r: 2,
-            percent: 100
-          }],
-          beAtR: 1
-        },
         ...lse[0]
       });
     } catch (e) {
@@ -1583,13 +1567,10 @@ function TradingJournal({
     if (trade.planId) {
       const plan = plans.find(p => p.id === trade.planId);
       if (plan) {
-        const autoPatch = pendingAutoManageInitRef.current[trade.planId];
-        if (autoPatch) delete pendingAutoManageInitRef.current[trade.planId];
         const updated = {
           ...plan,
           status: "Taken",
-          linkedTradeId: id,
-          ...(autoPatch || {})
+          linkedTradeId: id
         };
         await sbUpsert(supabase, "plans", userId, updated);
         setPlans(prev => prev.map(p => p.id === plan.id ? updated : p));
@@ -1683,7 +1664,7 @@ function TradingJournal({
     await sbDelete(supabase, "plans", id);
     setPlans(prev => prev.filter(p => p.id !== id));
   }
-  function logPlanAsTrade(plan, opts = {}) {
+  function logPlanAsTrade(plan) {
     const acct = parseFloat(activeAccount?.account_size);
     const riskPct = parseFloat(plan.riskPercent);
     const riskDollars = !isNaN(acct) && !isNaN(riskPct) ? (acct * riskPct / 100).toFixed(2) : "";
@@ -1696,54 +1677,20 @@ function TradingJournal({
       const pointsAtRisk = Math.abs(entryNum - slNum) / inst.pointSize;
       if (pointsAtRisk > 0) lots = (riskDollarsCalc / (pointsAtRisk * inst.pointValue)).toFixed(2);
     }
-    const entryValue = opts.entryOverride !== undefined ? opts.entryOverride : !isNaN(entryNum) ? plan.entryZone : "";
     setTradePrefill({
       date: plan.date,
       symbol: plan.symbol,
       direction: plan.direction === "Short" ? "short" : "long",
       tags: plan.setupTags || (plan.setupType ? [plan.setupType] : []),
       risk: riskDollars,
-      entry: entryValue,
+      entry: !isNaN(entryNum) ? plan.entryZone : "",
       lots,
       notes: plan.thesis || "",
       planId: plan.id,
-      account_id: activeAccountId,
-      ...(opts.autoLogged ? {
-        autoLogged: true,
-        legLabel: opts.legLabel || null
-      } : {})
+      account_id: activeAccountId
     });
     setEditingTrade(null);
     setModalOpen(true);
-  }
-  // Called when the trader taps "Confirm & log trade" on an auto-manage entry-reached banner.
-  // Opens the same pre-filled trade form as the manual ▶ action, but defaults the entry price
-  // to the live market price (not the originally planned entryZone) since price may have moved,
-  // and stashes the plan-side patch to apply once the trade is actually saved.
-  function confirmAutoManageEntry(plan) {
-    const livePx = livePrices[plan.symbol];
-    const entryOverride = livePx !== undefined ? String(livePx) : undefined;
-    pendingAutoManageInitRef.current[plan.id] = {
-      autoManageStatus: "live",
-      liveStopLoss: parseFloat(plan.stopLoss),
-      legsFilled: []
-    };
-    logPlanAsTrade(plan, {
-      entryOverride,
-      autoLogged: true
-    });
-  }
-  function dismissAutoManageEntry(plan) {
-    patchPlan(plan.id, {
-      autoManageStatus: "watching_entry",
-      entryTriggerNotifiedAt: null
-    });
-  }
-  function skipAutoManageSetup(plan) {
-    patchPlan(plan.id, {
-      status: "Skipped",
-      autoManageStatus: null
-    });
   }
   async function addAttachment(ownerType, ownerId, file) {
     let uploadFile = file;
@@ -2209,7 +2156,9 @@ function TradingJournal({
     className: "tj-sidebar-bottom"
   }, /*#__PURE__*/React.createElement("div", {
     className: "tj-sidebar-utility"
-  }, /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(NotificationBell, {
+    supabase: supabase
+  }), /*#__PURE__*/React.createElement("button", {
     className: "tj-icon-btn tj-help-btn",
     onClick: () => setShowOnboarding(true),
     title: "Show quick tour"
@@ -2236,7 +2185,9 @@ function TradingJournal({
   }, accounts.map(a => /*#__PURE__*/React.createElement("option", {
     key: a.id,
     value: a.id
-  }, a.name))), /*#__PURE__*/React.createElement("button", {
+  }, a.name))), /*#__PURE__*/React.createElement(NotificationBell, {
+    supabase: supabase
+  }), /*#__PURE__*/React.createElement("button", {
     className: "tj-icon-btn tj-help-btn",
     onClick: () => setShowOnboarding(true),
     title: "Show quick tour"
@@ -2314,7 +2265,6 @@ function TradingJournal({
     trades: visibleTrades,
     settings: settings,
     activeAccount: activeAccount,
-    livePrices: livePrices,
     onAddPlan: () => {
       setEditingPlan(null);
       setPlanModalOpen(true);
@@ -2325,9 +2275,6 @@ function TradingJournal({
     },
     onDeletePlan: deletePlan,
     onLogTrade: logPlanAsTrade,
-    onConfirmEntry: confirmAutoManageEntry,
-    onDismissEntry: dismissAutoManageEntry,
-    onSkipSetup: skipAutoManageSetup,
     onViewTrade: t => {
       setEditingTrade(t);
       setTradePrefill(null);
@@ -2832,10 +2779,7 @@ function TradeLog({
     }, t.symbol, !t.planId && /*#__PURE__*/React.createElement("span", {
       className: "tj-unplanned-pill",
       title: "No plan behind this trade"
-    }, "Unplanned"), t.autoLogged && /*#__PURE__*/React.createElement("span", {
-      className: "tj-auto-tag",
-      title: t.legLabel || "Logged automatically by auto-manage"
-    }, "🤖 ", t.legLabel || "auto")), /*#__PURE__*/React.createElement("td", {
+    }, "Unplanned")), /*#__PURE__*/React.createElement("td", {
       className: "tj-muted"
     }, t.category), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
       className: `tj-dir ${t.direction}`
@@ -2891,16 +2835,12 @@ function PlanView({
   trades,
   settings,
   activeAccount,
-  livePrices = {},
   onAddPlan,
   onEditPlan,
   onDeletePlan,
   onLogTrade,
   onViewTrade,
-  onSaveSettings,
-  onConfirmEntry,
-  onDismissEntry,
-  onSkipSetup
+  onSaveSettings
 }) {
   const visible = settings.planPageVisible || {
     watchlist: true,
@@ -2909,7 +2849,6 @@ function PlanView({
   const acct = parseFloat(activeAccount?.account_size);
   const watchlist = plans.filter(p => ["Watching", "Triggered"].includes(p.status)).sort((a, b) => new Date(b.date) - new Date(a.date));
   const history = plans.filter(p => ["Taken", "Skipped", "Invalidated"].includes(p.status)).sort((a, b) => new Date(b.date) - new Date(a.date));
-  const pendingEntryPlans = plans.filter(p => p.autoManageStatus === "pending_confirm");
   function togglePart(key) {
     onSaveSettings({
       ...settings,
@@ -2955,10 +2894,7 @@ function PlanView({
       }, fmtDate(p.date)), /*#__PURE__*/React.createElement("td", {
         className: "tj-symbol",
         onClick: () => onEditPlan(p)
-      }, p.symbol, p.autoManage && /*#__PURE__*/React.createElement("span", {
-        className: "tj-auto-tag",
-        title: "Auto-managed: entry, scale-outs, and breakeven are handled automatically"
-      }, "🤖")), /*#__PURE__*/React.createElement("td", {
+      }, p.symbol), /*#__PURE__*/React.createElement("td", {
         className: "tj-muted",
         onClick: () => onEditPlan(p)
       }, p.session || "—"), /*#__PURE__*/React.createElement("td", {
@@ -3049,26 +2985,7 @@ function PlanView({
     style: {
       marginLeft: "auto"
     }
-  }, "+ Plan a trade")), pendingEntryPlans.map(p => {
-    const livePx = livePrices[p.symbol];
-    return /*#__PURE__*/React.createElement("div", {
-      key: p.id,
-      className: "tj-entry-banner"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "tj-eb-text"
-    }, "⚡ ", /*#__PURE__*/React.createElement("b", null, p.symbol), " reached your entry (", p.entryZone, ")", livePx !== undefined && /*#__PURE__*/React.createElement(React.Fragment, null, " — live price is now ", /*#__PURE__*/React.createElement("b", null, livePx)), ". Log the trade?"), /*#__PURE__*/React.createElement("div", {
-      className: "tj-eb-actions"
-    }, /*#__PURE__*/React.createElement("button", {
-      className: "tj-btn tj-btn-primary",
-      onClick: () => onConfirmEntry(p)
-    }, "Confirm & log trade"), /*#__PURE__*/React.createElement("button", {
-      className: "tj-btn",
-      onClick: () => onDismissEntry(p)
-    }, "Not filled — keep watching"), /*#__PURE__*/React.createElement("button", {
-      className: "tj-btn",
-      onClick: () => onSkipSetup(p)
-    }, "Skip this setup")));
-  }), plans.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "+ Plan a trade")), plans.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "tj-empty"
   }, /*#__PURE__*/React.createElement("span", {
     className: "tj-empty-mark"
@@ -3508,140 +3425,7 @@ function SetupView({
       marginTop: 10,
       fontSize: 12
     }
-  }, "Notifications are per-device — enable this on each phone or computer you want alerts on.")), sv.alerts !== false && /*#__PURE__*/React.createElement("div", {
-    className: "tj-panel"
-  }, /*#__PURE__*/React.createElement("h3", null, "Auto-manage defaults"), /*#__PURE__*/React.createElement("p", {
-    className: "tj-muted"
-  }, "This is your starting point every time you turn on \"🤖 Auto-manage this trade\" on a new plan — one leg, one target, no partials, until you change it. Set it up your way here, and every new plan pre-fills with it. You can still adjust legs on any individual plan without changing this default."), /*#__PURE__*/React.createElement("div", {
-    className: "tj-legs-editor",
-    style: {
-      marginTop: 10
-    }
-  }, (settings.autoManageDefaults?.scaleOutLegs || [{
-    r: 2,
-    percent: 100
-  }]).map((leg, i, arr) => /*#__PURE__*/React.createElement("div", {
-    className: "tj-legs-row",
-    key: i
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, arr.length > 1 ? `Leg ${i + 1}:` : "Close"), /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "close"), /*#__PURE__*/React.createElement("input", {
-    className: "tj-input",
-    type: "number",
-    step: "any",
-    min: "0",
-    max: "100",
-    value: leg.percent,
-    onChange: e => {
-      const legs = [...arr];
-      legs[i] = {
-        ...legs[i],
-        percent: e.target.value
-      };
-      onSaveSettings({
-        ...settings,
-        autoManageDefaults: {
-          ...settings.autoManageDefaults,
-          scaleOutLegs: legs
-        }
-      });
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "% at"), /*#__PURE__*/React.createElement("input", {
-    className: "tj-input",
-    type: "number",
-    step: "any",
-    min: "0",
-    value: leg.r,
-    onChange: e => {
-      const legs = [...arr];
-      legs[i] = {
-        ...legs[i],
-        r: e.target.value
-      };
-      onSaveSettings({
-        ...settings,
-        autoManageDefaults: {
-          ...settings.autoManageDefaults,
-          scaleOutLegs: legs
-        }
-      });
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "R"), arr.length > 1 && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "tj-icon-btn",
-    onClick: () => {
-      const legs = arr.filter((_, idx) => idx !== i);
-      onSaveSettings({
-        ...settings,
-        autoManageDefaults: {
-          ...settings.autoManageDefaults,
-          scaleOutLegs: legs.length ? legs : [{
-            r: 2,
-            percent: 100
-          }]
-        }
-      });
-    },
-    title: "Remove this leg"
-  }, "✕"))), (settings.autoManageDefaults?.scaleOutLegs || []).length < 5 && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "tj-btn",
-    style: {
-      alignSelf: "flex-start",
-      fontSize: 12
-    },
-    onClick: () => {
-      const arr = settings.autoManageDefaults?.scaleOutLegs || [{
-        r: 2,
-        percent: 100
-      }];
-      const legs = [...arr, {
-        r: (parseFloat(arr[arr.length - 1]?.r) || 0) + 1,
-        percent: 0
-      }];
-      onSaveSettings({
-        ...settings,
-        autoManageDefaults: {
-          ...settings.autoManageDefaults,
-          scaleOutLegs: legs
-        }
-      });
-    }
-  }, "+ Add another leg"), /*#__PURE__*/React.createElement("div", {
-    className: "tj-legs-row"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "Move stop to breakeven at"), /*#__PURE__*/React.createElement("input", {
-    className: "tj-input",
-    type: "number",
-    step: "any",
-    min: "0",
-    value: settings.autoManageDefaults?.beAtR ?? 1,
-    onChange: e => onSaveSettings({
-      ...settings,
-      autoManageDefaults: {
-        ...settings.autoManageDefaults,
-        beAtR: e.target.value
-      }
-    })
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "R"))), (() => {
-    const sum = (settings.autoManageDefaults?.scaleOutLegs || []).reduce((a, l) => a + (parseFloat(l.percent) || 0), 0);
-    return sum !== 100 ? /*#__PURE__*/React.createElement("p", {
-      style: {
-        marginTop: 8,
-        fontSize: 12,
-        color: "var(--loss)"
-      }
-    }, "Your default legs total ", sum, "% — fix this to exactly 100% or new plans won't validate until you edit them.") : null;
-  })()), sv.subscription !== false && profile && /*#__PURE__*/React.createElement("div", {
+  }, "Notifications are per-device — enable this on each phone or computer you want alerts on.")), sv.subscription !== false && profile && /*#__PURE__*/React.createElement("div", {
     className: "tj-panel"
   }, /*#__PURE__*/React.createElement("h3", null, "Your subscription"), /*#__PURE__*/React.createElement("div", {
     className: "tj-subscription-row"
@@ -4534,20 +4318,14 @@ function PlanModal({
 }) {
   const planId = useRef(plan?.id || uid()).current;
   const locked = plan?.status === "Taken";
-  const defaultLegs = () => settings.autoManageDefaults?.scaleOutLegs?.length ? settings.autoManageDefaults.scaleOutLegs.map(l => ({
-    ...l
-  })) : [{
-    r: 2,
-    percent: 100
-  }];
-  const defaultBeAtR = () => settings.autoManageDefaults?.beAtR ?? 1;
   const [form, setForm] = useState(() => plan ? {
     alertEnabled: false,
     alertTargetPrice: "",
     alertDirection: "above",
-    autoManage: false,
-    scaleOutLegs: defaultLegs(),
-    beAtR: defaultBeAtR(),
+    tpAlertsEnabled: false,
+    tpLevels: [{
+      r: 2
+    }],
     ...plan,
     setupTags: plan.setupTags || (plan.setupType ? [plan.setupType] : [])
   } : {
@@ -4570,9 +4348,10 @@ function PlanModal({
     alertEnabled: false,
     alertTargetPrice: "",
     alertDirection: "above",
-    autoManage: false,
-    scaleOutLegs: defaultLegs(),
-    beAtR: defaultBeAtR()
+    tpAlertsEnabled: false,
+    tpLevels: [{
+      r: 2
+    }]
   });
   const initialInst = instruments.find(i => i.symbol === (plan?.symbol || ""));
   const [isCustomSymbol, setIsCustomSymbol] = useState(!!plan && !!plan.symbol && !initialInst);
@@ -4632,18 +4411,18 @@ function PlanModal({
       setError("Enter a numeric price for the alert, or turn the alert off.");
       return;
     }
-    if (form.autoManage) {
+    if (form.tpAlertsEnabled) {
       if (form.direction !== "Long" && form.direction !== "Short") {
-        setError("Auto-manage needs a Long or Short bias — \"Watching (neutral)\" won't work.");
+        setError("Take-profit notifications need a Long or Short bias — \"Watching (neutral)\" won't work.");
         return;
       }
       if (isNaN(parseFloat(form.entryZone)) || isNaN(parseFloat(form.stopLoss))) {
-        setError("Auto-manage needs a numeric entry price and stop loss.");
+        setError("Take-profit notifications need a numeric entry price and stop loss to calculate R.");
         return;
       }
-      const legSum = (form.scaleOutLegs || []).reduce((a, l) => a + (parseFloat(l.percent) || 0), 0);
-      if (legSum !== 100) {
-        setError(`Your scale-out legs add up to ${legSum}% — they need to total exactly 100%.`);
+      const bad = (form.tpLevels || []).some(l => isNaN(parseFloat(l.r)));
+      if (bad) {
+        setError("Every take-profit level needs a numeric R value.");
         return;
       }
     }
@@ -4654,41 +4433,39 @@ function PlanModal({
       attachmentIds: planAttachments.map(a => a.id)
     });
   }
-  function setLeg(i, key, val) {
+  function setTpLevel(i, val) {
     setForm(f => {
-      const legs = [...(f.scaleOutLegs || [])];
-      legs[i] = {
-        ...legs[i],
-        [key]: val
+      const levels = [...(f.tpLevels || [])];
+      levels[i] = {
+        ...levels[i],
+        r: val
       };
       return {
         ...f,
-        scaleOutLegs: legs
+        tpLevels: levels
       };
     });
   }
-  function addLeg() {
+  function addTpLevel() {
     setForm(f => {
-      const legs = [...(f.scaleOutLegs || [])];
-      if (legs.length >= 5) return f;
-      legs.push({
-        r: legs.length ? (parseFloat(legs[legs.length - 1].r) || 0) + 1 : 1,
-        percent: 0
+      const levels = [...(f.tpLevels || [])];
+      if (levels.length >= 5) return f;
+      levels.push({
+        r: levels.length ? (parseFloat(levels[levels.length - 1].r) || 0) + 1 : 1
       });
       return {
         ...f,
-        scaleOutLegs: legs
+        tpLevels: levels
       };
     });
   }
-  function removeLeg(i) {
+  function removeTpLevel(i) {
     setForm(f => {
-      const legs = (f.scaleOutLegs || []).filter((_, idx) => idx !== i);
+      const levels = (f.tpLevels || []).filter((_, idx) => idx !== i);
       return {
         ...f,
-        scaleOutLegs: legs.length ? legs : [{
-          r: 2,
-          percent: 100
+        tpLevels: levels.length ? levels : [{
+          r: 2
         }]
       };
     });
@@ -4905,14 +4682,14 @@ function PlanModal({
     className: "tj-checkbox"
   }, /*#__PURE__*/React.createElement("input", {
     type: "checkbox",
-    checked: !!form.autoManage,
-    onChange: e => set("autoManage", e.target.checked)
-  }), "🤖 Auto-manage this trade"), form.autoManage ? form.direction !== "Long" && form.direction !== "Short" ? /*#__PURE__*/React.createElement("p", {
+    checked: !!form.tpAlertsEnabled,
+    onChange: e => set("tpAlertsEnabled", e.target.checked)
+  }), "🎯 Notify me at take-profit levels"), form.tpAlertsEnabled ? form.direction !== "Long" && form.direction !== "Short" ? /*#__PURE__*/React.createElement("p", {
     className: "tj-muted",
     style: {
       marginTop: 6
     }
-  }, "Set a Long or Short bias above first — auto-manage needs to know which side you're on.") : /*#__PURE__*/React.createElement("div", {
+  }, "Set a Long or Short bias above first — take-profit levels are measured in R, which needs to know which side you're on.") : /*#__PURE__*/React.createElement("div", {
     className: "tj-auto-manage-box"
   }, /*#__PURE__*/React.createElement("p", {
     className: "tj-muted",
@@ -4920,81 +4697,47 @@ function PlanModal({
       marginTop: 0,
       fontSize: 12
     }
-  }, "When price reaches your entry, we'll notify you to confirm the fill. Once confirmed, we track live P&L, close each leg below at its R-multiple, move your stop to breakeven, and log every close automatically. Set up one leg for a single full close, or add more to scale out your way — 1:1, 1:5, three-leg, whatever fits this trade."), /*#__PURE__*/React.createElement("div", {
+  }, "We'll notify you each time price reaches one of these R-multiples once you've logged this as a trade — nothing closes automatically, this is a heads-up so you can decide and act yourself. Add as many levels as your strategy uses."), /*#__PURE__*/React.createElement("div", {
     className: "tj-legs-editor"
-  }, (form.scaleOutLegs || []).map((leg, i) => /*#__PURE__*/React.createElement("div", {
+  }, (form.tpLevels || []).map((lvl, i) => /*#__PURE__*/React.createElement("div", {
     className: "tj-legs-row",
     key: i
   }, /*#__PURE__*/React.createElement("span", {
     className: "tj-muted"
-  }, (form.scaleOutLegs || []).length > 1 ? `Leg ${i + 1}:` : "Close"), /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "close"), /*#__PURE__*/React.createElement("input", {
+  }, (form.tpLevels || []).length > 1 ? `TP${i + 1}:` : "TP:"), /*#__PURE__*/React.createElement("input", {
     className: "tj-input",
     type: "number",
     step: "any",
     min: "0",
-    max: "100",
-    value: leg.percent,
-    onChange: e => setLeg(i, "percent", e.target.value)
+    value: lvl.r,
+    onChange: e => setTpLevel(i, e.target.value)
   }), /*#__PURE__*/React.createElement("span", {
     className: "tj-muted"
-  }, "% at"), /*#__PURE__*/React.createElement("input", {
-    className: "tj-input",
-    type: "number",
-    step: "any",
-    min: "0",
-    value: leg.r,
-    onChange: e => setLeg(i, "r", e.target.value)
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "R"), (form.scaleOutLegs || []).length > 1 && /*#__PURE__*/React.createElement("button", {
+  }, "R"), (form.tpLevels || []).length > 1 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "tj-icon-btn",
-    onClick: () => removeLeg(i),
-    title: "Remove this leg"
-  }, "✕"))), (form.scaleOutLegs || []).length < 5 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => removeTpLevel(i),
+    title: "Remove this level"
+  }, "✕"))), (form.tpLevels || []).length < 5 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "tj-btn",
     style: {
       alignSelf: "flex-start",
       fontSize: 12
     },
-    onClick: addLeg
-  }, "+ Add another leg"), /*#__PURE__*/React.createElement("div", {
-    className: "tj-legs-row"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "Move stop to breakeven at"), /*#__PURE__*/React.createElement("input", {
-    className: "tj-input",
-    type: "number",
-    step: "any",
-    min: "0",
-    value: form.beAtR,
-    onChange: e => set("beAtR", e.target.value)
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "tj-muted"
-  }, "R"))), (() => {
-    const sum = (form.scaleOutLegs || []).reduce((a, l) => a + (parseFloat(l.percent) || 0), 0);
-    return sum !== 100 ? /*#__PURE__*/React.createElement("p", {
-      style: {
-        marginTop: 8,
-        fontSize: 12,
-        color: "var(--loss)"
-      }
-    }, "Your legs currently total ", sum, "% — they need to add up to exactly 100%.") : null;
-  })(), /*#__PURE__*/React.createElement("p", {
+    onClick: addTpLevel
+  }, "+ Add another level")), /*#__PURE__*/React.createElement("p", {
     className: "tj-muted",
     style: {
       marginTop: 8,
       fontSize: 11
     }
-  }, "These default to whatever you've saved in Setup → Auto-manage defaults — change them here for just this trade, or update your defaults there so every new plan starts pre-filled your way.")) : /*#__PURE__*/React.createElement("p", {
+  }, "We'll also notify you once if price hits your original stop while this trade is open — no separate toggle needed for that.")) : /*#__PURE__*/React.createElement("p", {
     className: "tj-muted",
     style: {
       marginTop: 6
     }
-  }, "You'll still get a manual \"▶ Log as trade\" button — this just automates the confirm-and-track part.")), /*#__PURE__*/React.createElement("label", {
+  }, "Off by default — turn on when you want a heads-up as price runs toward your targets.")), /*#__PURE__*/React.createElement("label", {
     className: "tj-notes-label"
   }, "Thesis — why this trade", /*#__PURE__*/React.createElement("textarea", {
     className: "tj-input tj-textarea",
@@ -5078,6 +4821,92 @@ function PlanModal({
 
 /* ================= PROFILE MODAL ================= */
 /* ================= ONBOARDING ================= */
+// In-app notification center. This exists specifically because push delivery isn't
+// always instant or reliable (varies by device/OS) — everything the Edge Function
+// notifies about also gets written here, so it's never fully missed, just delayed.
+function NotificationBell({
+  supabase
+}) {
+  const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchNotifications() {
+      const {
+        data,
+        error
+      } = await supabase.from("notifications").select("id,type,symbol,title,body,created_at,read").order("created_at", {
+        ascending: false
+      }).limit(30);
+      if (!cancelled && !error && data) {
+        setItems(data);
+        setLoaded(true);
+      }
+    }
+    fetchNotifications();
+    const iv = setInterval(fetchNotifications, 45000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, []);
+  const unreadCount = items.filter(n => !n.read).length;
+  async function markAllRead() {
+    const unreadIds = items.filter(n => !n.read).map(n => n.id);
+    if (!unreadIds.length) return;
+    setItems(prev => prev.map(n => ({
+      ...n,
+      read: true
+    })));
+    await supabase.from("notifications").update({
+      read: true
+    }).in("id", unreadIds);
+  }
+  function toggle() {
+    setOpen(o => {
+      const next = !o;
+      if (next) markAllRead();
+      return next;
+    });
+  }
+  function timeAgo(iso) {
+    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-wrap"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "tj-icon-btn tj-notif-btn",
+    onClick: toggle,
+    title: "Notifications"
+  }, "🔔", unreadCount > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "tj-notif-badge"
+  }, unreadCount > 9 ? "9+" : unreadCount)), open && /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-panel-head"
+  }, "Notifications"), !loaded ? /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-empty tj-muted"
+  }, "Loading…") : items.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-empty tj-muted"
+  }, "Nothing yet — alerts, entries triggered, and take-profit hits will show up here.") : /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-list"
+  }, items.map(n => /*#__PURE__*/React.createElement("div", {
+    key: n.id,
+    className: `tj-notif-item ${n.read ? "" : "unread"}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-title"
+  }, n.title), /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-body"
+  }, n.body), /*#__PURE__*/React.createElement("div", {
+    className: "tj-notif-time"
+  }, timeAgo(n.created_at)))))));
+}
 function OnboardingModal({
   onClose
 }) {
@@ -5100,12 +4929,20 @@ function OnboardingModal({
     icon: "📈"
   }, {
     title: "Get pinged when price arrives",
-    body: "On any Watching plan, turn on \"🔔 Set a price alert\" and pick a price and direction — it doesn't have to be your entry. We'll watch the market and send a notification to your device the moment it's hit, even if the app is closed. Turn on notifications for your device once in Setup → Price alerts.",
+    body: "On any Watching plan, turn on \"🔔 Set a price alert\" and pick a price and direction — it doesn't have to be your entry. We'll notify you the moment price crosses that level, even if the app is closed. This is separate from your entry: a plan moves to \"Triggered\" automatically only when price actually reaches your entry, not when a custom alert fires. Turn on notifications for your device once in Setup → Price alerts.",
     icon: "🔔"
   }, {
-    title: "Let the app manage your entry",
-    body: "Turn on \"🤖 Auto-manage this trade\" on a plan and we'll watch for price to reach your entry, notify you to confirm the fill, then track live P&L, scale out at your R-multiples, move your stop to breakeven, and log the closes automatically.",
-    icon: "🤖"
+    title: "Know the moment you're triggered",
+    body: "Any Watching plan with an entry, stop, and a Long/Short bias is watched automatically — no toggle needed. The moment price actually reaches your entry, the plan flips to \"Triggered\" and you're notified. From there it's your call: log it as a trade with the ▶ button, or let it go.",
+    icon: "🎯"
+  }, {
+    title: "Check the bell for anything you missed",
+    body: "Push notifications don't always land instantly, especially on phones. Everything — alerts, entries triggered, take-profit levels, stops hit — is also saved in-app. Tap the 🔔 bell in the header any time to see your recent notifications.",
+    icon: "🔔"
+  }, {
+    title: "Get a heads-up at your targets",
+    body: "Turn on \"🎯 Notify me at take-profit levels\" on a plan and set your R-multiples — 1R, 2R, however many you use. Once you've logged the trade, we'll notify you each time price reaches one, plus once if your stop gets hit. Nothing closes automatically — this is a heads-up so you can act.",
+    icon: "🎯"
   }, {
     title: "Make it yours",
     body: "In Setup: create tags and a checklist that match your strategy, add trading accounts (Real, Demo, whatever you need), and adjust instrument specs if your broker's contract sizes differ.",
