@@ -90,6 +90,18 @@ html,body{margin:0;padding:0;background:var(--bg);transition:background .2s;}
 .tj-btn-ghost{background:transparent;}
 .tj-btn-danger{background:transparent;border-color:var(--loss);color:var(--loss);}
 .tj-btn-danger:hover{background:var(--loss-bg);}
+.tj-trash-list{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
+.tj-trash-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;flex-wrap:wrap;}
+.tj-trash-item-text{font-size:13px;}
+.tj-trash-item-actions{display:flex;gap:6px;flex-shrink:0;}
+.tj-quote-chip{border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:8px;padding:8px 12px;margin-bottom:12px;background:var(--surface-2);}
+.tj-quote-chip-text{margin:6px 0 0;font-size:12px;font-style:italic;color:var(--text-faint);}
+.tj-quote-btn{font-size:11px;}
+.tj-quoted-badge{display:inline-flex;align-items:center;gap:2px;margin-left:6px;font-size:10px;padding:1px 6px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-faint);cursor:pointer;}
+.tj-quoted-badge:hover{color:var(--text);border-color:var(--gold);}
+.tj-quoted-popover{position:absolute;top:calc(100% + 4px);left:0;width:260px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:70;padding:8px;}
+.tj-quoted-popover-item{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);font-size:12px;padding:6px 8px;border-radius:6px;cursor:pointer;}
+.tj-quoted-popover-item:hover{background:var(--surface-2);}
 .tj-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;}
 .tj-tab{background:none;border:none;color:var(--text-dim);font-size:13px;font-weight:500;padding:10px 14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
 .tj-tab:hover{color:var(--text);}
@@ -1424,6 +1436,30 @@ function TradingJournal({
   const [tradePrefill, setTradePrefill] = useState(null);
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
+  const [planQuotePrefill, setPlanQuotePrefill] = useState(null);
+  // "Quote this idea" — same underlying setup used again on a different symbol/date.
+  // Always spins off a new PLAN (a plan is the "idea" stage of this app, regardless of
+  // whether you're quoting an existing plan or an already-executed trade), carrying a
+  // snapshot of the source's symbol/date/text so the quote still reads sensibly even
+  // if the original is later edited or deleted — same as how a quote-retweet works.
+  function quoteIdea(sourceType, source) {
+    setEditingPlan(null);
+    setPlanQuotePrefill({
+      symbol: source.symbol,
+      category: source.category,
+      setupTags: source.setupTags || source.tags || (source.setupType ? [source.setupType] : source.tag ? [source.tag] : []),
+      quotedFrom: {
+        type: sourceType,
+        id: source.id
+      },
+      quotedFromPreview: {
+        symbol: source.symbol,
+        date: source.date,
+        text: (source.thesis || source.notes || "").slice(0, 140)
+      }
+    });
+    setPlanModalOpen(true);
+  }
   const [importOpen, setImportOpen] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -1544,8 +1580,10 @@ function TradingJournal({
     setAccounts(next);
     if (activeAccountId === id) switchAccount(next[0].id);
   }
-  const visibleTrades = useMemo(() => trades.filter(t => t.account_id === activeAccountId), [trades, activeAccountId]);
-  const visiblePlans = useMemo(() => plans.filter(p => p.account_id === activeAccountId), [plans, activeAccountId]);
+  const visibleTrades = useMemo(() => trades.filter(t => t.account_id === activeAccountId && !t.deletedAt), [trades, activeAccountId]);
+  const visiblePlans = useMemo(() => plans.filter(p => p.account_id === activeAccountId && !p.deletedAt), [plans, activeAccountId]);
+  const trashedTrades = useMemo(() => trades.filter(t => t.account_id === activeAccountId && t.deletedAt).sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt)), [trades, activeAccountId]);
+  const trashedPlans = useMemo(() => plans.filter(p => p.account_id === activeAccountId && p.deletedAt).sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt)), [plans, activeAccountId]);
   const visibleJournal = useMemo(() => journal.filter(j => j.account_id === activeAccountId), [journal, activeAccountId]);
   const activeAccount = accounts.find(a => a.id === activeAccountId);
   const todayInTz = todayStr(settings.timezone);
@@ -1629,7 +1667,32 @@ function TradingJournal({
     await sbUpsert(supabase, "plans", userId, record);
     setPlans(prev => prev.map(p => p.id === id ? record : p));
   }
+  // Soft delete: mark deletedAt instead of removing the row. Kept for 30 days in the
+  // Trash (Setup → Trash), then purged automatically by a daily pg_cron job — see
+  // migrations/14_trash_purge.sql. Restoring just clears deletedAt again.
   async function deleteTrade(id) {
+    const trade = trades.find(t => t.id === id);
+    if (!trade) return;
+    const updated = {
+      ...trade,
+      deletedAt: new Date().toISOString()
+    };
+    await sbUpsert(supabase, "trades", userId, updated);
+    setTrades(prev => prev.map(t => t.id === id ? updated : t));
+  }
+  async function restoreTrade(id) {
+    const trade = trades.find(t => t.id === id);
+    if (!trade) return;
+    const updated = {
+      ...trade,
+      deletedAt: null
+    };
+    await sbUpsert(supabase, "trades", userId, updated);
+    setTrades(prev => prev.map(t => t.id === id ? updated : t));
+  }
+  async function purgeTradeForever(id) {
+    const orphans = attachments.filter(a => a.owner_type === "trade" && a.owner_id === id);
+    for (const a of orphans) await removeAttachment(a.id);
     await sbDelete(supabase, "trades", id);
     setTrades(prev => prev.filter(t => t.id !== id));
   }
@@ -1693,10 +1756,29 @@ function TradingJournal({
     flashSave();
     setPlanModalOpen(false);
     setEditingPlan(null);
+    setPlanQuotePrefill(null);
   }
   async function deletePlan(id) {
     const plan = plans.find(p => p.id === id);
     if (plan?.status === "Taken") return; // executed plans are a permanent record
+    const updated = {
+      ...plan,
+      deletedAt: new Date().toISOString()
+    };
+    await sbUpsert(supabase, "plans", userId, updated);
+    setPlans(prev => prev.map(p => p.id === id ? updated : p));
+  }
+  async function restorePlan(id) {
+    const plan = plans.find(p => p.id === id);
+    if (!plan) return;
+    const updated = {
+      ...plan,
+      deletedAt: null
+    };
+    await sbUpsert(supabase, "plans", userId, updated);
+    setPlans(prev => prev.map(p => p.id === id ? updated : p));
+  }
+  async function purgePlanForever(id) {
     const orphans = attachments.filter(a => a.owner_type === "plan" && a.owner_id === id);
     for (const a of orphans) await removeAttachment(a.id);
     await sbDelete(supabase, "plans", id);
@@ -2319,7 +2401,8 @@ function TradingJournal({
       setTradePrefill(null);
       setModalOpen(true);
     },
-    onSaveSettings: saveSettings
+    onSaveSettings: saveSettings,
+    onQuoteIdea: quoteIdea
   }), view === "journal" && /*#__PURE__*/React.createElement(JournalView, {
     journal: visibleJournal,
     trades: visibleTrades,
@@ -2336,7 +2419,7 @@ function TradingJournal({
     clearDayFilter: () => setDayFilter(null),
     sort: sort,
     toggleSort: toggleSort,
-    plans: plans,
+    plans: visiblePlans,
     onEdit: t => {
       setEditingTrade(t);
       setTradePrefill(null);
@@ -2353,7 +2436,8 @@ function TradingJournal({
       setEditingTrade(null);
       setTradePrefill(null);
       setModalOpen(true);
-    }
+    },
+    onQuoteIdea: quoteIdea
   }), view === "setup" && /*#__PURE__*/React.createElement(SetupView, {
     tagStats: tagStats,
     onAddTag: addTag,
@@ -2382,7 +2466,13 @@ function TradingJournal({
     tradeCount: trades.length,
     profile: localProfile,
     onSignOut: onSignOut,
-    supabase: supabase
+    supabase: supabase,
+    trashedTrades: trashedTrades,
+    trashedPlans: trashedPlans,
+    onRestoreTrade: restoreTrade,
+    onPurgeTrade: purgeTradeForever,
+    onRestorePlan: restorePlan,
+    onPurgePlan: purgePlanForever
   })))), showCustomize && /*#__PURE__*/React.createElement("div", {
     className: "tj-overlay",
     onClick: () => setShowCustomize(false)
@@ -2437,6 +2527,7 @@ function TradingJournal({
     onSave: upsertTrade
   }), planModalOpen && /*#__PURE__*/React.createElement(PlanModal, {
     plan: editingPlan,
+    prefill: planQuotePrefill,
     tags: tags,
     instruments: instruments,
     settings: settings,
@@ -2453,6 +2544,7 @@ function TradingJournal({
     onClose: () => {
       setPlanModalOpen(false);
       setEditingPlan(null);
+      setPlanQuotePrefill(null);
     },
     onSave: upsertPlan
   }), profileModalOpen && /*#__PURE__*/React.createElement(ProfileModal, {
@@ -2723,7 +2815,8 @@ function TradeLog({
   plans,
   onViewPlan,
   onAddTrade,
-  livePrices = {}
+  livePrices = {},
+  onQuoteIdea
 }) {
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "tj-log-toolbar"
@@ -2800,6 +2893,7 @@ function TradeLog({
     const r = parseFloat(t.risk) > 0 ? t.pnl / parseFloat(t.risk) : null;
     const tTags = t.tags || (t.tag ? [t.tag] : []);
     const linkedPlan = t.planId ? plans.find(p => p.id === t.planId) : null;
+    const quotedBy = plans.filter(x => x.quotedFrom?.type === "trade" && x.quotedFrom?.id === t.id);
     const isOpen = t.exit === "" || t.exit === null || t.exit === undefined || isNaN(parseFloat(t.exit));
     const livePx = isOpen ? livePrices[t.symbol] : undefined;
     const liveCalc = livePx !== undefined ? calcPnl({
@@ -2820,7 +2914,11 @@ function TradeLog({
     }, t.symbol, !t.planId && /*#__PURE__*/React.createElement("span", {
       className: "tj-unplanned-pill",
       title: "No plan behind this trade"
-    }, "Unplanned")), /*#__PURE__*/React.createElement("td", {
+    }, "Unplanned"), /*#__PURE__*/React.createElement(QuotedBadge, {
+      count: quotedBy.length,
+      items: quotedBy,
+      onOpenItem: onViewPlan
+    })), /*#__PURE__*/React.createElement("td", {
       className: "tj-muted"
     }, t.category), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
       className: `tj-dir ${t.direction}`
@@ -2858,6 +2956,10 @@ function TradeLog({
       title: "View plan"
     }, "→"), /*#__PURE__*/React.createElement("button", {
       className: "tj-icon-btn",
+      onClick: () => onQuoteIdea("trade", t),
+      title: "Quote this idea as a new plan"
+    }, "🔁"), /*#__PURE__*/React.createElement("button", {
+      className: "tj-icon-btn",
       onClick: () => onEdit(t),
       "aria-label": "Edit"
     }, "✎"), /*#__PURE__*/React.createElement("button", {
@@ -2881,7 +2983,8 @@ function PlanView({
   onDeletePlan,
   onLogTrade,
   onViewTrade,
-  onSaveSettings
+  onSaveSettings,
+  onQuoteIdea
 }) {
   const visible = settings.planPageVisible || {
     watchlist: true,
@@ -2924,6 +3027,7 @@ function PlanView({
       const pTags = p.setupTags || (p.setupType ? [p.setupType] : []);
       const isTaken = p.status === "Taken";
       const linkedTrade = isTaken && p.linkedTradeId ? trades.find(t => t.id === p.linkedTradeId) : null;
+      const quotedBy = plans.filter(x => x.quotedFrom?.type === "plan" && x.quotedFrom?.id === p.id);
       return /*#__PURE__*/React.createElement("tr", {
         key: p.id,
         style: {
@@ -2935,7 +3039,11 @@ function PlanView({
       }, fmtDate(p.date)), /*#__PURE__*/React.createElement("td", {
         className: "tj-symbol",
         onClick: () => onEditPlan(p)
-      }, p.symbol), /*#__PURE__*/React.createElement("td", {
+      }, p.symbol, /*#__PURE__*/React.createElement(QuotedBadge, {
+        count: quotedBy.length,
+        items: quotedBy,
+        onOpenItem: onEditPlan
+      })), /*#__PURE__*/React.createElement("td", {
         className: "tj-muted",
         onClick: () => onEditPlan(p)
       }, p.session || "—"), /*#__PURE__*/React.createElement("td", {
@@ -3000,6 +3108,10 @@ function PlanView({
         onClick: () => onViewTrade(linkedTrade),
         title: "View trade"
       }, "→"), /*#__PURE__*/React.createElement("button", {
+        className: "tj-icon-btn",
+        onClick: () => onQuoteIdea("plan", p),
+        title: "Quote this idea as a new plan"
+      }, "🔁"), /*#__PURE__*/React.createElement("button", {
         className: "tj-icon-btn",
         onClick: () => onEditPlan(p),
         "aria-label": isTaken ? "View" : "Edit"
@@ -3220,7 +3332,13 @@ function SetupView({
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
-  onSwitchAccount
+  onSwitchAccount,
+  trashedTrades = [],
+  trashedPlans = [],
+  onRestoreTrade,
+  onPurgeTrade,
+  onRestorePlan,
+  onPurgePlan
 }) {
   const [copied, setCopied] = useState(false);
   const referralLink = profile ? `${window.location.origin}${window.location.pathname}?ref=${profile.referral_code}` : "";
@@ -3482,7 +3600,14 @@ function SetupView({
       marginTop: 4,
       fontSize: 11
     }
-  }, "Translation is in progress — navigation and key screens are translated now, more is on the way."))), sv.alerts !== false && /*#__PURE__*/React.createElement("div", {
+  }, "Translation is in progress — navigation and key screens are translated now, more is on the way."))), /*#__PURE__*/React.createElement(TrashPanel, {
+    trashedTrades: trashedTrades,
+    trashedPlans: trashedPlans,
+    onRestoreTrade: onRestoreTrade,
+    onPurgeTrade: onPurgeTrade,
+    onRestorePlan: onRestorePlan,
+    onPurgePlan: onPurgePlan
+  }), sv.alerts !== false && /*#__PURE__*/React.createElement("div", {
     className: "tj-panel"
   }, /*#__PURE__*/React.createElement("h3", null, "Price alerts"), /*#__PURE__*/React.createElement("p", {
     className: "tj-muted"
@@ -4490,6 +4615,7 @@ function TradeModal({
 /* ================= PLAN MODAL ================= */
 function PlanModal({
   plan,
+  prefill,
   tags,
   instruments,
   settings,
@@ -4537,7 +4663,8 @@ function PlanModal({
     tpAlertsEnabled: false,
     tpLevels: [{
       r: 2
-    }]
+    }],
+    ...(prefill || {})
   });
   const initialInst = instruments.find(i => i.symbol === (plan?.symbol || ""));
   const [isCustomSymbol, setIsCustomSymbol] = useState(!!plan && !!plan.symbol && !initialInst);
@@ -4923,7 +5050,21 @@ function PlanModal({
     style: {
       marginTop: 6
     }
-  }, "Off by default — turn on when you want a heads-up as price runs toward your targets.")), /*#__PURE__*/React.createElement("label", {
+  }, "Off by default — turn on when you want a heads-up as price runs toward your targets.")), form.quotedFromPreview && /*#__PURE__*/React.createElement("div", {
+    className: "tj-quote-chip"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tj-muted"
+  }, "🔁 Quoting ", form.quotedFrom?.type === "trade" ? "a trade" : "a plan", " — ", /*#__PURE__*/React.createElement("b", null, form.quotedFromPreview.symbol), " · ", fmtDate(form.quotedFromPreview.date)), form.quotedFromPreview.text && /*#__PURE__*/React.createElement("p", {
+    className: "tj-quote-chip-text"
+  }, "\"", form.quotedFromPreview.text, form.quotedFromPreview.text.length >= 140 ? "…" : "", "\""), !locked && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-icon-btn",
+    onClick: () => {
+      set("quotedFrom", null);
+      set("quotedFromPreview", null);
+    },
+    title: "Remove this link"
+  }, "✕ Unlink")), /*#__PURE__*/React.createElement("label", {
     className: "tj-notes-label"
   }, "Thesis — why this trade", /*#__PURE__*/React.createElement("textarea", {
     className: "tj-input tj-textarea",
@@ -5010,6 +5151,144 @@ function PlanModal({
 // In-app notification center. This exists specifically because push delivery isn't
 // always instant or reliable (varies by device/OS) — everything the Edge Function
 // notifies about also gets written here, so it's never fully missed, just delayed.
+// Recycle bin: soft-deleted trades/plans stay here for 30 days (auto-purged by a
+// daily pg_cron job — see migrations/14_trash_purge.sql), restorable any time before
+// that, or purged immediately with "Delete forever".
+// Small badge showing how many plans quote this idea, with a click-to-expand list.
+function QuotedBadge({
+  count,
+  items,
+  onOpenItem
+}) {
+  const [open, setOpen] = useState(false);
+  if (!count) return null;
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "relative",
+      display: "inline-block"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tj-quoted-badge",
+    onClick: e => {
+      e.stopPropagation();
+      setOpen(o => !o);
+    },
+    title: "Ideas that quoted this"
+  }, "🔁 ", count), open && /*#__PURE__*/React.createElement("div", {
+    className: "tj-quoted-popover",
+    onClick: e => e.stopPropagation()
+  }, items.map(it => /*#__PURE__*/React.createElement("button", {
+    key: it.id,
+    type: "button",
+    className: "tj-quoted-popover-item",
+    onClick: () => {
+      setOpen(false);
+      onOpenItem(it);
+    }
+  }, it.symbol, " · ", fmtDate(it.date)))));
+}
+function TrashPanel({
+  trashedTrades = [],
+  trashedPlans = [],
+  onRestoreTrade,
+  onPurgeTrade,
+  onRestorePlan,
+  onPurgePlan
+}) {
+  const [confirmPurge, setConfirmPurge] = useState(null); // { type, id, label } | null
+  function daysLeft(deletedAt) {
+    const elapsedDays = (Date.now() - new Date(deletedAt).getTime()) / (1000 * 60 * 60 * 24);
+    return Math.max(0, Math.ceil(30 - elapsedDays));
+  }
+  const total = trashedTrades.length + trashedPlans.length;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "tj-panel"
+  }, /*#__PURE__*/React.createElement("h3", null, "Trash ", /*#__PURE__*/React.createElement("span", {
+    className: "tj-muted",
+    style: {
+      fontWeight: 400,
+      fontSize: 12
+    }
+  }, "(", total, ")")), /*#__PURE__*/React.createElement("p", {
+    className: "tj-muted"
+  }, "Deleted trades and plans stay here for 30 days before they're gone for good — restore them any time before then."), total === 0 ? /*#__PURE__*/React.createElement("p", {
+    className: "tj-muted",
+    style: {
+      marginTop: 8
+    }
+  }, "Nothing in the trash.") : /*#__PURE__*/React.createElement("div", {
+    className: "tj-trash-list"
+  }, trashedTrades.map(t => /*#__PURE__*/React.createElement("div", {
+    key: t.id,
+    className: "tj-trash-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tj-trash-item-text"
+  }, /*#__PURE__*/React.createElement("b", null, t.symbol), " ", /*#__PURE__*/React.createElement("span", {
+    className: "tj-muted"
+  }, "Trade · ", fmtDate(t.date), " · deletes in ", daysLeft(t.deletedAt), "d")), /*#__PURE__*/React.createElement("div", {
+    className: "tj-trash-item-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-btn",
+    onClick: () => onRestoreTrade(t.id)
+  }, "Restore"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-btn tj-btn-danger",
+    onClick: () => setConfirmPurge({
+      type: "trade",
+      id: t.id,
+      label: `${t.symbol} trade`
+    })
+  }, "Delete forever")))), trashedPlans.map(p => /*#__PURE__*/React.createElement("div", {
+    key: p.id,
+    className: "tj-trash-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tj-trash-item-text"
+  }, /*#__PURE__*/React.createElement("b", null, p.symbol), " ", /*#__PURE__*/React.createElement("span", {
+    className: "tj-muted"
+  }, "Plan · ", fmtDate(p.date), " · deletes in ", daysLeft(p.deletedAt), "d")), /*#__PURE__*/React.createElement("div", {
+    className: "tj-trash-item-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-btn",
+    onClick: () => onRestorePlan(p.id)
+  }, "Restore"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tj-btn tj-btn-danger",
+    onClick: () => setConfirmPurge({
+      type: "plan",
+      id: p.id,
+      label: `${p.symbol} plan`
+    })
+  }, "Delete forever"))))), confirmPurge && /*#__PURE__*/React.createElement("div", {
+    className: "tj-overlay",
+    onClick: () => setConfirmPurge(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tj-modal",
+    style: {
+      maxWidth: 380
+    },
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("h3", null, "Delete forever?"), /*#__PURE__*/React.createElement("p", {
+    className: "tj-muted"
+  }, "This permanently deletes the ", confirmPurge.label, ". This can't be undone."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 16,
+      justifyContent: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "tj-btn",
+    onClick: () => setConfirmPurge(null)
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    className: "tj-btn tj-btn-danger",
+    onClick: () => {
+      (confirmPurge.type === "trade" ? onPurgeTrade : onPurgePlan)(confirmPurge.id);
+      setConfirmPurge(null);
+    }
+  }, "Delete forever")))));
+}
 function NotificationBell({
   supabase
 }) {
